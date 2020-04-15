@@ -5,7 +5,7 @@ A discord bot for doing various gamejam related things.
 - [x] Create channels on demand
 - [x] Register theme ideas through PM
 - [ ] Theme generation based on submitted themes
-- [ ] Request roles for skills
+- [x] Request roles for skills
 
 ## Usage
 
