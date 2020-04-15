@@ -206,8 +206,8 @@ async fn handle_potential_command(
         Some("~help") => {
             send_help_message(msg.channel_id, http).await?;
         }
-        Some("~create_channel") => {
-            handle_create_channel(
+        Some("~create_team_channels") => {
+            handle_create_team_channels(
                 &words.collect::<Vec<_>>(),
                 msg.channel_id,
                 msg.guild_id.expect("Tried to create channel in non-guild"),
@@ -243,35 +243,69 @@ async fn send_help_message(
 }
 
 
-async fn handle_create_channel<'a>(
+async fn handle_create_team_channels<'a>(
     rest_command: &[&'a str],
     original_channel: ChannelId,
     guild: GuildId,
     http: HttpClient
 ) -> Result<()> {
-    let channel_name = &*rest_command.join(" ");
-    println!("got request for channel with name {:?}", channel_name);
+    let team_name = &*rest_command.join(" ");
+    println!("got request for channel with name {:?}", team_name);
     let reply = if rest_command.len() == 0 {
         "You need to specify a team name".to_string()
     }
     else {
-        let request = http.create_guild_channel(guild, channel_name)
-            .kind(ChannelType::GuildVoice)
-            .nsfw(true);
-        match request.await {
-            Ok(GuildChannel::Voice(_)) => {
-                "Channel created 🎊".into()
+        // Category
+        let category_request = http.create_guild_channel(guild,
+            format!("Team: {}", team_name)
+        )
+            .kind(ChannelType::GuildCategory);
+        match category_request.await {
+            Ok(GuildChannel::Category(category)) => {
+                // Text Channel
+                let text_request = http.create_guild_channel(guild, team_name)
+                    .parent_id(category.id)
+                    .kind(ChannelType::GuildText);
+                match text_request.await {
+                    Ok(_) => {
+                        // Voice Channel
+                        let voice_request = http.create_guild_channel(guild, team_name)
+                            .parent_id(category.id)
+                            .kind(ChannelType::GuildVoice);
+                        match voice_request.await {
+                            Ok(_) => {
+                                "Team channels created 🎊"
+                            }
+                            Err(e) => {
+                                println!(
+                                    "Failed to create voice channel {}. Error: {:?}",
+                                    rest_command[0],
+                                    e
+                                );
+                                "Voice channel creation failed, check logs for details"
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        println!(
+                            "Failed to create text channel {}. Error: {:?}",
+                            rest_command[0],
+                            e
+                        );
+                        "Text channel creation failed, check logs for details"
+                    }
+                }.into()
             }
             Ok(_) => {
-                "A channel was created but it wasn't a voice channel 🤔. Blame discord".into()
+                "A channel was created but it wasn't a category 🤔. Blame discord".into()
             }
             Err(e) => {
                 println!(
-                    "Failed to create channel {}. Error: {:?}",
-                    channel_name,
+                    "Failed to create category {}. Error: {:?}",
+                    rest_command[0],
                     e
                 );
-                "Channel creation failed, check logs for details".into()
+                "Category creation failed, check logs for details".into()
             }
         }
     };
