@@ -483,7 +483,7 @@ async fn handle_give_role<'a>(
     msg_author_id: UserId,
     http: HttpClient
 ) -> Result<()> {
-    let mut message = "You need to to specify a valid role.\nAvailable roles are:```Programmer\n2D Artist\n3D Artist\nSound Designer\nMusician\nBoard Games```";
+    let mut message = "You need to to specify a valid role.\nAvailable roles are:```Programmer\n2D Artist\n3D Artist\nSound Designer\nMusician\nIdea Guy\nBoard Games```";
 
     let reply : String = if rest_command.len() == 0 {
         message.into()
