@@ -4,6 +4,7 @@ use std::io::prelude::*;
 use std::sync::Mutex;
 use std::collections::{HashSet, HashMap};
 use std::path::PathBuf;
+use std::fmt::{Debug, Display};
 
 use tokio::stream::StreamExt;
 use serde_derive::{Serialize, Deserialize};
@@ -20,6 +21,7 @@ use twilight::{
     gateway::cluster::{config::ShardScheme, Cluster, ClusterConfig},
     gateway::shard::Event,
     http::Client as HttpClient,
+    http::error::Error as DiscordError,
     model::{
         gateway::GatewayIntents,
         user::CurrentUser,
@@ -225,13 +227,26 @@ async fn handle_potential_command(
             send_help_message(msg.channel_id, http).await?;
         }
         Some("~create_team_channels") => {
-            handle_create_team_channels(
+            let result = handle_create_team_channels(
                 &words.collect::<Vec<_>>(),
-                msg.channel_id,
                 msg.guild_id.expect("Tried to create channel in non-guild"),
                 msg.author.id,
-                http
-            ).await?;
+                &http
+            ).await;
+
+            match result {
+                Ok(()) => {
+                    http.create_message(msg.channel_id)
+                        .content("Channel created 🎊")
+                        .await?;
+                }
+                Err(ref e) => {
+                    http.create_message(msg.channel_id)
+                        .content(format!("{}", e))
+                        .await?;
+                    println!("Channel creation failed: {:?}", e);
+                }
+            }
         },
         Some(s) if s.chars().next() == Some('~') => {
             http.create_message(msg.channel_id)
@@ -262,98 +277,120 @@ async fn send_help_message(
 }
 
 
+
 async fn handle_create_team_channels<'a>(
     rest_command: &[&'a str],
-    original_channel: ChannelId,
     guild: GuildId,
     user: UserId,
-    http: HttpClient
-) -> Result<()> {
-    if !PersistentState::instance().lock().unwrap().is_allowed_channel(user) {
-        http.create_message(original_channel)
-            .content("You already created a channel")
-            .await?;
-        return Ok(())
-    }
-
+    http: &HttpClient
+) -> std::result::Result<(), ChannelCreationError<>> {
     lazy_static! {
         static ref INVALID_REGEX: Regex = Regex::new("[-+*_#=.⋅`\"|<>{}]+").unwrap();
     }
 
-    let team_name = &*rest_command.join(" ");
-    println!("got request for channel with name {:?}", team_name);
-    let reply = if rest_command.len() == 0 {
-        "You need to specify a team name".to_string()
-    }
-    // Check if the name is valid
-    else if INVALID_REGEX.is_match(team_name) {
-        "Team names cannot contain any of the characters -+*_#=.⋅`\"|<>{}".into()
+    if !PersistentState::instance().lock().unwrap().is_allowed_channel(user) {
+        Err(ChannelCreationError::AlreadyCreated)
     }
     else {
-        // Category
-        let category_request = http.create_guild_channel(guild,
-            format!("Team: {}", team_name)
-        )
-            .kind(ChannelType::GuildCategory);
-        match category_request.await {
-            Ok(GuildChannel::Category(category)) => {
-                // Text Channel
-                let text_request = http.create_guild_channel(guild, team_name)
-                    .parent_id(category.id)
-                    .kind(ChannelType::GuildText);
-                match text_request.await {
-                    Ok(_) => {
-                        // Voice Channel
-                        let voice_request = http.create_guild_channel(guild, team_name)
-                            .parent_id(category.id)
-                            .kind(ChannelType::GuildVoice);
-                        match voice_request.await {
-                            Ok(_) => {
-                                PersistentState::instance().lock().unwrap()
-                                    .register_channel_creation(user)
-                                    .unwrap_or_else(|e| {
-                                        println!("Failed to register channel creation: {:?}", e);
-                                    });
-                                "Team channels created 🎊"
-                            }
-                            Err(e) => {
-                                println!(
-                                    "Failed to create voice channel {}. Error: {:?}",
-                                    team_name,
-                                    e
-                                );
-                                "Voice channel creation failed, check logs for details"
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        println!(
-                            "Failed to create text channel {}. Error: {:?}",
-                            team_name,
-                            e
-                        );
-                        "Text channel creation failed, check logs for details"
-                    }
-                }.into()
-            }
-            Ok(_) => {
-                "A channel was created but it wasn't a category 🤔. Blame discord"
-                    .into()
-            }
-            Err(e) => {
-                println!(
-                    "Failed to create category {}. Error: {:?}",
-                    team_name,
-                    e
-                );
-                "Category creation failed, check logs for details".into()
-            }
+        let team_name = &*rest_command.join(" ");
+        println!("got request for channel with name {:?}", team_name);
+        if rest_command.len() == 0 {
+            Err(ChannelCreationError::NoName)
         }
-    };
+        else if INVALID_REGEX.is_match(team_name) {
+            Err(ChannelCreationError::InvalidName)
+        }
+        else {
+            let category_name = format!("Team: {}", team_name);
+            // Create a category
+            let category = http.create_guild_channel(guild, category_name)
+                .kind(ChannelType::GuildCategory)
+                .await
+                .map_err(ChannelCreationError::CategoryCreationFailed)
+                .and_then(|maybe_category| {
+                    match maybe_category {
+                        GuildChannel::Category(category) => {
+                            Ok(category)
+                        }
+                        _ => Err(ChannelCreationError::CategoryNotCreated)
+                    }
+                })?;
 
-    http.create_message(original_channel)
-        .content(&reply)
-        .await?;
+            http.create_guild_channel(guild, team_name)
+                .parent_id(category.id)
+                .kind(ChannelType::GuildText)
+                .await
+                .map_err(|e| ChannelCreationError::TextCreationFailed(e))?;
 
-    Ok(())
+            http.create_guild_channel(guild, team_name)
+                .parent_id(category.id)
+                .kind(ChannelType::GuildVoice)
+                .await
+                .map_err(|e| ChannelCreationError::VoiceCreationFailed(e))?;
+
+            PersistentState::instance().lock().unwrap()
+                .register_channel_creation(user)
+                .unwrap();
+
+            Ok(())
+        }
+    }
 }
+
+
+/**
+  Error type for channel creation attempts
+
+  The Display implementation is intended to be sent back to the user
+*/
+#[derive(Debug)]
+enum ChannelCreationError {
+    /// The user has already created a channel
+    AlreadyCreated,
+    /// No name was specified
+    NoName,
+    /// The user used invalid characters in the channel name
+    InvalidName,
+    /// The discord API said everything was fine but created something
+    /// that was not a category
+    CategoryNotCreated,
+    /// The discord API returned an error when creating category
+    CategoryCreationFailed(DiscordError),
+    /// The discord API returned an error when creating text channel
+    TextCreationFailed(DiscordError),
+    /// The discord API returned an error when creating voice channel
+    VoiceCreationFailed(DiscordError)
+}
+
+impl Display for ChannelCreationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let msg = match self {
+            Self::AlreadyCreated => "You already created a channel",
+            Self::NoName => "You need to specify a channel name",
+            Self::CategoryNotCreated =>
+                "I asked discord for a category but got something else 🤔",
+            Self::InvalidName =>
+                "Team names cannot contain any of the characters -+*_#=.⋅`\"|<>{}",
+            Self::CategoryCreationFailed(_) => "Category creation failed",
+            Self::TextCreationFailed(_) => "Text channel creation failed",
+            Self::VoiceCreationFailed(_) => "Voice channel creation failed",
+        };
+        write!(f, "{}", msg)
+    }
+}
+
+impl std::error::Error for ChannelCreationError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::AlreadyCreated
+                | Self::NoName
+                | Self::CategoryNotCreated
+                | Self::InvalidName => None,
+            Self::CategoryCreationFailed(e)
+                | Self::TextCreationFailed(e)
+                | Self::VoiceCreationFailed(e) => Some(e)
+        }
+    }
+}
+
+
