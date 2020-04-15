@@ -2,7 +2,7 @@ use std::env;
 use std::fs::File;
 use std::io::prelude::*;
 use std::sync::Mutex;
-use std::collections::HashMap;
+use std::collections::{HashSet, HashMap};
 use std::path::PathBuf;
 
 use tokio::stream::StreamExt;
@@ -34,14 +34,15 @@ enum SubmissionResult {
     AlreadySubmitted,
 }
 
-const FILENAME: &'static str = "themes.json";
+const FILENAME: &'static str = "state.json";
 
 #[derive(Serialize, Deserialize)]
-struct ThemeIdeas {
-    content: HashMap<UserId, String>,
+struct PersistentState {
+    theme_ideas: HashMap<UserId, String>,
+    channel_creators: HashSet<UserId>
 }
 
-impl ThemeIdeas {
+impl PersistentState {
     fn load() -> Result<Self> {
         if PathBuf::from(FILENAME).exists() {
             let mut file = File::open(FILENAME)?;
@@ -50,30 +51,46 @@ impl ThemeIdeas {
             Ok(serde_json::from_str(&content)?)
         }
         else {
-            Ok(Self {content: HashMap::new()})
+            Ok(Self {
+                theme_ideas: HashMap::new(),
+                channel_creators: HashSet::new(),
+            })
         }
     }
 
     pub fn instance() -> &'static Mutex<Self> {
         lazy_static! {
-            static ref INSTANCE: Mutex<ThemeIdeas> = Mutex::new(
-                ThemeIdeas::load().unwrap()
+            static ref INSTANCE: Mutex<PersistentState> = Mutex::new(
+                PersistentState::load().unwrap()
             );
         }
         &INSTANCE
     }
 
-    pub fn try_add(&mut self, user: UserId, idea: &str) -> Result<SubmissionResult> {
-        if self.content.contains_key(&user) {
-            self.content.insert(user, idea.into());
+    pub fn try_add_theme(
+        &mut self,
+        user: UserId,
+        idea: &str
+    ) -> Result<SubmissionResult> {
+        if self.theme_ideas.contains_key(&user) {
+            self.theme_ideas.insert(user, idea.into());
             self.save().context("Failed to write current themes")?;
             Ok(SubmissionResult::AlreadySubmitted)
         }
         else {
-            self.content.insert(user, idea.into());
+            self.theme_ideas.insert(user, idea.into());
             self.save().context("Failed to write current themes")?;
             Ok(SubmissionResult::Done)
         }
+    }
+
+    pub fn is_allowed_channel(&mut self, id: UserId) -> bool {
+        !self.channel_creators.contains(&id)
+    }
+
+    pub fn register_channel_creation(&mut self, id: UserId) -> Result<()> {
+        self.channel_creators.insert(id);
+        self.save()
     }
 
     pub fn save(&self) -> Result<()> {
@@ -161,8 +178,8 @@ async fn handle_event(
                             .await?;
                     }
                     else {
-                        let has_old_theme = ThemeIdeas::instance().lock().unwrap()
-                            .try_add(msg.author.id, &msg.content)
+                        let has_old_theme = PersistentState::instance().lock().unwrap()
+                            .try_add_theme(msg.author.id, &msg.content)
                             .context("failed to save theme")?;
 
                         match has_old_theme {
@@ -211,6 +228,7 @@ async fn handle_potential_command(
                 &words.collect::<Vec<_>>(),
                 msg.channel_id,
                 msg.guild_id.expect("Tried to create channel in non-guild"),
+                msg.author.id,
                 http
             ).await?;
         },
@@ -237,7 +255,7 @@ async fn send_help_message(
     http: HttpClient,
 ) -> Result<()> {
     http.create_message(channel_id)
-        .content("Talk to me in a PM to submit theme ideas.\n\nYou can also ask for a voice channel by sending `~create_channel <channel name>`")
+        .content("Talk to me in a PM to submit theme ideas.\n\nYou can also ask for a voice channel by sending `~create_team_channels <channel name>`")
         .await?;
     Ok(())
 }
@@ -247,8 +265,16 @@ async fn handle_create_team_channels<'a>(
     rest_command: &[&'a str],
     original_channel: ChannelId,
     guild: GuildId,
+    user: UserId,
     http: HttpClient
 ) -> Result<()> {
+    if !PersistentState::instance().lock().unwrap().is_allowed_channel(user) {
+        http.create_message(original_channel)
+            .content("You already created a channel")
+            .await?;
+        return Ok(())
+    }
+
     let team_name = &*rest_command.join(" ");
     println!("got request for channel with name {:?}", team_name);
     let reply = if rest_command.len() == 0 {
@@ -274,6 +300,11 @@ async fn handle_create_team_channels<'a>(
                             .kind(ChannelType::GuildVoice);
                         match voice_request.await {
                             Ok(_) => {
+                                PersistentState::instance().lock().unwrap()
+                                    .register_channel_creation(user)
+                                    .unwrap_or_else(|e| {
+                                        println!("Failed to register channel creation: {:?}", e);
+                                    });
                                 "Team channels created 🎊"
                             }
                             Err(e) => {
@@ -297,7 +328,8 @@ async fn handle_create_team_channels<'a>(
                 }.into()
             }
             Ok(_) => {
-                "A channel was created but it wasn't a category 🤔. Blame discord".into()
+                "A channel was created but it wasn't a category 🤔. Blame discord"
+                    .into()
             }
             Err(e) => {
                 println!(
@@ -316,4 +348,3 @@ async fn handle_create_team_channels<'a>(
 
     Ok(())
 }
-
