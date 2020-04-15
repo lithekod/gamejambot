@@ -2,8 +2,9 @@ use std::env;
 use std::fs::File;
 use std::io::prelude::*;
 use std::sync::Mutex;
-use std::collections::HashMap;
+use std::collections::{HashSet, HashMap};
 use std::path::PathBuf;
+use std::fmt::{Debug, Display};
 
 use tokio::stream::StreamExt;
 use serde_derive::{Serialize, Deserialize};
@@ -20,6 +21,7 @@ use twilight::{
     gateway::cluster::{config::ShardScheme, Cluster, ClusterConfig},
     gateway::shard::Event,
     http::Client as HttpClient,
+    http::error::Error as DiscordError,
     model::{
         gateway::GatewayIntents,
         user::CurrentUser,
@@ -35,14 +37,24 @@ enum SubmissionResult {
     AlreadySubmitted,
 }
 
-const FILENAME: &'static str = "themes.json";
+const FILENAME: &'static str = "state.json";
 
+/**
+  Stores state that should persist between bot restarts.
+
+  The data is stored as json and is loaded lazily on the first use
+  of the struct.
+
+  Data is not automatically reloaded on file changes
+*/
 #[derive(Serialize, Deserialize)]
-struct ThemeIdeas {
-    content: HashMap<UserId, String>,
+struct PersistentState {
+    theme_ideas: HashMap<UserId, String>,
+    channel_creators: HashSet<UserId>
 }
 
-impl ThemeIdeas {
+impl PersistentState {
+    /// Load the data from disk, or default initialise it if the file doesn't exist
     fn load() -> Result<Self> {
         if PathBuf::from(FILENAME).exists() {
             let mut file = File::open(FILENAME)?;
@@ -51,32 +63,59 @@ impl ThemeIdeas {
             Ok(serde_json::from_str(&content)?)
         }
         else {
-            Ok(Self {content: HashMap::new()})
+            Ok(Self {
+                theme_ideas: HashMap::new(),
+                channel_creators: HashSet::new(),
+            })
         }
     }
 
+    /**
+      Return a global instance of the struct. The instance is global to
+      avoid race conditions, especially with data stored on disk
+    */
     pub fn instance() -> &'static Mutex<Self> {
         lazy_static! {
-            static ref INSTANCE: Mutex<ThemeIdeas> = Mutex::new(
-                ThemeIdeas::load().unwrap()
+            static ref INSTANCE: Mutex<PersistentState> = Mutex::new(
+                PersistentState::load().unwrap()
             );
         }
         &INSTANCE
     }
 
-    pub fn try_add(&mut self, user: UserId, idea: &str) -> Result<SubmissionResult> {
-        if self.content.contains_key(&user) {
-            self.content.insert(user, idea.into());
+    /**
+      Tries to add a theme submission by the user. Replaces the previous theme
+      if the user had one previously. If file saving fails, returns Err
+    */
+    pub fn try_add_theme(
+        &mut self,
+        user: UserId,
+        idea: &str
+    ) -> Result<SubmissionResult> {
+        if self.theme_ideas.contains_key(&user) {
+            self.theme_ideas.insert(user, idea.into());
             self.save().context("Failed to write current themes")?;
             Ok(SubmissionResult::AlreadySubmitted)
         }
         else {
-            self.content.insert(user, idea.into());
+            self.theme_ideas.insert(user, idea.into());
             self.save().context("Failed to write current themes")?;
             Ok(SubmissionResult::Done)
         }
     }
 
+    /// Checks if the user is allowed to create a channel
+    pub fn is_allowed_channel(&mut self, id: UserId) -> bool {
+        !self.channel_creators.contains(&id)
+    }
+
+    /// Registers that the user has created a channel
+    pub fn register_channel_creation(&mut self, id: UserId) -> Result<()> {
+        self.channel_creators.insert(id);
+        self.save()
+    }
+
+    /// Save the state to disk. Should be called after all modifications
     pub fn save(&self) -> Result<()> {
         let mut file = File::create(FILENAME)
             .with_context(|| format!("failed to open {} for writing", FILENAME))?;
@@ -138,6 +177,7 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+/// Checks if the specified channel is a private message channel
 async fn is_pm(http: &HttpClient, channel_id: ChannelId) -> Result<bool> {
     match http.channel(channel_id).await?.unwrap() {
         Channel::Private(_) => Ok(true),
@@ -155,32 +195,7 @@ async fn handle_event(
             // Don't send replies to yourself
             if msg.author.id != current_user.id {
                 if is_pm(&http, msg.channel_id).await? {
-                    // Check if the message is a single word
-                    if msg.content.split_ascii_whitespace().count() != 1 {
-                        http.create_message(msg.channel_id)
-                            .content("Themes ideas should only be a single word")
-                            .await?;
-                    }
-                    else {
-                        let has_old_theme = ThemeIdeas::instance().lock().unwrap()
-                            .try_add(msg.author.id, &msg.content)
-                            .context("failed to save theme")?;
-
-                        match has_old_theme {
-                            SubmissionResult::Done => {
-                                // Check if the message is a PM
-                                http.create_message(msg.channel_id)
-                                    .content("Theme idea registered, thanks!")
-                                    .await?;
-                            }
-                            SubmissionResult::AlreadySubmitted => {
-                                // Check if the message is a PM
-                                http.create_message(msg.channel_id)
-                                    .content("You can only send one idea. We replaced your old submission")
-                                    .await?;
-                            }
-                        }
-                    }
+                    handle_pm(&msg, &http).await?;
                 }
                 else {
                     handle_potential_command(&msg, http, current_user)
@@ -197,6 +212,38 @@ async fn handle_event(
     Ok(())
 }
 
+
+async fn handle_pm(msg: &Message, http: &HttpClient) -> Result<()> {
+    // Check if the message is a single word
+    if msg.content.split_ascii_whitespace().count() != 1 {
+        http.create_message(msg.channel_id)
+            .content("Themes ideas should only be a single word")
+            .await?;
+    }
+    else {
+        let had_old_theme = PersistentState::instance().lock()
+            .unwrap()
+            .try_add_theme(msg.author.id, &msg.content)
+            .context("failed to save theme")?;
+
+        match had_old_theme {
+            SubmissionResult::Done => {
+                // Check if the message is a PM
+                http.create_message(msg.channel_id)
+                    .content("Theme idea registered, thanks!")
+                    .await?;
+            }
+            SubmissionResult::AlreadySubmitted => {
+                // Check if the message is a PM
+                http.create_message(msg.channel_id)
+                    .content("You can only send one idea. We replaced your old submission")
+                    .await?;
+            }
+        }
+    }
+    Ok(())
+}
+
 async fn handle_potential_command(
     msg: &Message,
     http: HttpClient,
@@ -207,13 +254,30 @@ async fn handle_potential_command(
         Some("~help") => {
             send_help_message(msg.channel_id, http).await?;
         }
-        Some("~create_channel") => {
-            handle_create_channel(
+        Some("~create_team_channels") => {
+            let result = handle_create_team_channels(
                 &words.collect::<Vec<_>>(),
-                msg.channel_id,
                 msg.guild_id.expect("Tried to create channel in non-guild"),
-                http
-            ).await?;
+                msg.author.id,
+                &http
+            ).await;
+
+            match result {
+                Ok(team) => {
+                    http.create_message(msg.channel_id)
+                        .content(format!(
+                            "Channels created for team {} here: <#{}>",
+                            team.team_name, team.text_id
+                        ))
+                        .await?;
+                }
+                Err(ref e) => {
+                    http.create_message(msg.channel_id)
+                        .content(format!("{}", e))
+                        .await?;
+                    println!("Channel creation failed: {:?}", e);
+                }
+            }
         },
         Some("~role") => {
             handle_give_role(
@@ -256,64 +320,120 @@ async fn send_help_message(
     http: HttpClient,
 ) -> Result<()> {
     http.create_message(channel_id)
-        .content("Talk to me in a PM to submit theme ideas.\n\nYou can also ask for a voice channel by sending `~create_channel <channel name>`\n\nGet a new role with `~role <role name>`\nand leave a role with `~leave <role name>`")
+        .content("Send me a PM to submit theme ideas.\n\nYou can also ask for a text channel and a voice channel by sending `~create_team_channels <team name>`\n\nGet a new role with `~role <role name>`\nand leave a role with `~leave <role name>`")
         .await?;
     Ok(())
 }
 
 
-async fn handle_create_channel<'a>(
+
+async fn handle_create_team_channels<'a>(
     rest_command: &[&'a str],
-    original_channel: ChannelId,
     guild: GuildId,
-    http: HttpClient
-) -> Result<()> {
+    user: UserId,
+    http: &HttpClient
+) -> std::result::Result<CreatedTeam, ChannelCreationError<>> {
     lazy_static! {
-        static ref VALID_REGEX: Regex = Regex::new("[_A-z0-9]+").unwrap();
+        static ref INVALID_REGEX: Regex = Regex::new("[-+*_#=.⋅`\"|<>{}]+").unwrap();
     }
-    println!("got request for channel with name {:?}", rest_command);
-    let reply = if rest_command.len() == 0 {
-        "You need to specify a team name".to_string()
-    }
-    else if rest_command.len() > 1 {
-        "Channel names can not contain whitespace".into()
-    }
-    // Check if the name is valid
-    else if !VALID_REGEX.find_iter(rest_command[0])
-            // The regex crate does not have a function to check if the whole string
-            // matches the regex. Instead we check if any of the matches
-            // are the same as the whole string being searched
-            .any(|m| m.as_str() == rest_command[0])
-    {
-        "Channel names can only contain A-z, _ and digits".into()
+
+    if !PersistentState::instance().lock().unwrap().is_allowed_channel(user) {
+        Err(ChannelCreationError::AlreadyCreated)
     }
     else {
-        let request = http.create_guild_channel(guild, rest_command[0])
-            .kind(ChannelType::GuildVoice)
-            .nsfw(true);
-        match request.await {
-            Ok(GuildChannel::Voice(_)) => {
-                "Channel created 🎊".into()
-            }
-            Ok(_) => {
-                "A channel was created but it wasn't a voice channel 🤔. Blame discord".into()
-            }
-            Err(e) => {
-                println!(
-                    "Failed to create channel {}. Error: {:?}",
-                    rest_command[0],
-                    e
-                );
-                "Channel creation failed, check logs for details".into()
-            }
+        let team_name = &*rest_command.join(" ");
+        println!("got request for channel with name {:?}", team_name);
+        if rest_command.len() == 0 {
+            Err(ChannelCreationError::NoName)
         }
-    };
+        else if INVALID_REGEX.is_match(team_name) {
+            Err(ChannelCreationError::InvalidName)
+        }
+        else {
+            let category_name = format!("Team: {}", team_name);
+            // Create a category
+            let category = http.create_guild_channel(guild, category_name)
+                .kind(ChannelType::GuildCategory)
+                .await
+                .map_err(ChannelCreationError::CategoryCreationFailed)
+                .and_then(|maybe_category| {
+                    match maybe_category {
+                        GuildChannel::Category(category) => {
+                            Ok(category)
+                        }
+                        _ => Err(ChannelCreationError::CategoryNotCreated)
+                    }
+                })?;
 
-    http.create_message(original_channel)
-        .content(&reply)
-        .await?;
+            let text = http.create_guild_channel(guild, team_name)
+                .parent_id(category.id)
+                .kind(ChannelType::GuildText)
+                .await
+                .map_err(|e| ChannelCreationError::TextCreationFailed(e))
+                .and_then(|maybe_text| {
+                    match maybe_text {
+                        GuildChannel::Category(text) => { // For some reason it isn't a GuildChannel::Text
+                            Ok(text)
+                        }
+                        _ => Err(ChannelCreationError::TextNotCreated)
+                    }
+                })?;
 
-    Ok(())
+            http.create_guild_channel(guild, team_name)
+                .parent_id(category.id)
+                .kind(ChannelType::GuildVoice)
+                .await
+                .map_err(|e| ChannelCreationError::VoiceCreationFailed(e))?;
+
+            PersistentState::instance().lock().unwrap()
+                .register_channel_creation(user)
+                .unwrap();
+
+            Ok(CreatedTeam{
+                team_name: team_name.to_owned(),
+                text_id: text.id
+            })
+        }
+    }
+}
+
+/**
+  Info about the channels created for a team
+*/
+#[derive(Debug)]
+struct CreatedTeam {
+    pub team_name: String,
+    pub text_id: ChannelId
+}
+
+/**
+  Error type for channel creation attempts
+
+  The Display implementation is intended to be sent back to the user
+*/
+#[derive(Debug)]
+enum ChannelCreationError {
+    /// The user has already created a channel
+    AlreadyCreated,
+    /// No name was specified
+    NoName,
+    /// The user used invalid characters in the channel name
+    InvalidName,
+    /// The discord API said everything was fine but created something
+    /// that was not a category
+    CategoryNotCreated,
+    /// The discord API said everything was fine but created something
+    /// that was not a text channel
+    TextNotCreated,
+    /// The discord API said everything was fine but created something
+    /// that was not a voice channel
+    VoiceNotCreated,
+    /// The discord API returned an error when creating category
+    CategoryCreationFailed(DiscordError),
+    /// The discord API returned an error when creating text channel
+    TextCreationFailed(DiscordError),
+    /// The discord API returned an error when creating voice channel
+    VoiceCreationFailed(DiscordError)
 }
 
 async fn handle_give_role<'a>(
@@ -398,3 +518,39 @@ async fn handle_remove_role<'a>(
     Ok(())
 }
 
+impl Display for ChannelCreationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let msg = match self {
+            Self::AlreadyCreated => "You already created a channel",
+            Self::NoName => "You need to specify a channel name",
+            Self::CategoryNotCreated =>
+                "I asked Discord for a category but got something else 🤔",
+            Self::TextNotCreated =>
+                "I asked Discord for a text channel but got something else 🤔",
+            Self::VoiceNotCreated =>
+                "I asked Discord for a voice channel but got something else 🤔",
+            Self::InvalidName =>
+                "Team names cannot contain any of the characters -+*_#=.⋅`\"|<>{}",
+            Self::CategoryCreationFailed(_) => "Category creation failed",
+            Self::TextCreationFailed(_) => "Text channel creation failed",
+            Self::VoiceCreationFailed(_) => "Voice channel creation failed",
+        };
+        write!(f, "{}", msg)
+    }
+}
+
+impl std::error::Error for ChannelCreationError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::AlreadyCreated
+                | Self::NoName
+                | Self::CategoryNotCreated
+                | Self::TextNotCreated
+                | Self::VoiceNotCreated
+                | Self::InvalidName => None,
+            Self::CategoryCreationFailed(e)
+                | Self::TextCreationFailed(e)
+                | Self::VoiceCreationFailed(e) => Some(e)
+        }
+    }
+}
