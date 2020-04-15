@@ -12,6 +12,7 @@ use anyhow::Context;
 use lazy_static::lazy_static;
 use serde_json;
 use regex::Regex;
+use rand::seq::{SliceRandom, IteratorRandom};
 
 use twilight::{
     cache::{
@@ -297,6 +298,23 @@ async fn handle_potential_command(
                 http
             ).await?;
         },
+        Some("!generate_theme") => {
+            let theme = do_theme_generation();
+            let send_result = http.create_message(msg.channel_id)
+                .content(&theme)
+                .await
+                .context("Failed to send theme");
+            match send_result {
+                Ok(_) => {},
+                Err(e) => {
+                    http.create_message(msg.channel_id)
+                        .content("Failed to send theme, has someone been naughty 🤔")
+                        .await?;
+                    println!("Failed to send theme message {:?}", e);
+                    println!("Message should have been: {:?}", theme);
+                }
+            }
+        }
         Some(s) if s.chars().next() == Some('!') => {
             http.create_message(msg.channel_id)
                 .content("Unrecognised command")
@@ -323,6 +341,28 @@ async fn send_help_message(
         .content("Send me a PM to submit theme ideas.\n\nYou can also ask for a text channel and a voice channel by sending `!create_team_channels <team name>`\n\nGet a new role with `!role <role name>`\nand leave a role with `!leave <role name>`")
         .await?;
     Ok(())
+}
+
+
+
+fn do_theme_generation() -> String {
+    let mut rng = rand::thread_rng();
+    let ref theme_ideas = PersistentState::instance().lock().unwrap().theme_ideas;
+    let mut selected = theme_ideas
+        .iter()
+        .map(|(_, idea)| idea)
+        .choose_multiple(&mut rng, 2);
+
+    // Per documetation: The order of chose_multiple is not random. To achieve
+    // that, shuffle the result
+    selected.shuffle(&mut rng);
+
+    if selected.len() != 2 {
+        "Not enough ideas have been submitted yet".to_string()
+    }
+    else {
+        format!("The theme is: {} {}", selected[0], selected[1])
+    }
 }
 
 
