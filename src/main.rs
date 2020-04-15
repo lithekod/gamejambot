@@ -249,15 +249,13 @@ async fn handle_create_channel<'a>(
     guild: GuildId,
     http: HttpClient
 ) -> Result<()> {
-    println!("got request for channel with name {:?}", rest_command);
+    let channel_name = &*rest_command.join(" ");
+    println!("got request for channel with name {:?}", channel_name);
     let reply = if rest_command.len() == 0 {
         "You need to specify a team name".to_string()
     }
-    else if rest_command.len() > 1 {
-        "Channel names can not contain whitespace".into()
-    }
     else {
-        let request = http.create_guild_channel(guild, rest_command[0])
+        let request = http.create_guild_channel(guild, channel_name)
             .kind(ChannelType::GuildVoice)
             .nsfw(true);
         match request.await {
@@ -270,7 +268,7 @@ async fn handle_create_channel<'a>(
             Err(e) => {
                 println!(
                     "Failed to create channel {}. Error: {:?}",
-                    rest_command[0],
+                    channel_name,
                     e
                 );
                 "Channel creation failed, check logs for details".into()
