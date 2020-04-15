@@ -334,7 +334,7 @@ async fn handle_create_team_channels<'a>(
     http: &HttpClient
 ) -> std::result::Result<CreatedTeam, ChannelCreationError<>> {
     lazy_static! {
-        static ref INVALID_REGEX: Regex = Regex::new("[-+*_#=.⋅`\"|<>{}]+").unwrap();
+        static ref INVALID_REGEX: Regex = Regex::new("[-+*_#=.⋅`\"\\\\|<>{}]+").unwrap();
     }
 
     if !PersistentState::instance().lock().unwrap().is_allowed_channel(user) {
@@ -342,7 +342,7 @@ async fn handle_create_team_channels<'a>(
     }
     else {
         let team_name = &*rest_command.join(" ");
-        println!("got request for channel with name {:?}", team_name);
+        println!("got request for team with name {:?}", team_name);
         if rest_command.len() == 0 {
             Err(ChannelCreationError::NoName)
         }
@@ -530,7 +530,7 @@ impl Display for ChannelCreationError {
             Self::VoiceNotCreated =>
                 "I asked Discord for a voice channel but got something else 🤔",
             Self::InvalidName =>
-                "Team names cannot contain any of the characters -+*_#=.⋅`\"|<>{}",
+                "Team names cannot contain any of the characters -+*_#=.⋅`\"\\\\|<>{}",
             Self::CategoryCreationFailed(_) => "Category creation failed",
             Self::TextCreationFailed(_) => "Text channel creation failed",
             Self::VoiceCreationFailed(_) => "Voice channel creation failed",
