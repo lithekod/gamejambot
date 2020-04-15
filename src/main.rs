@@ -39,6 +39,14 @@ enum SubmissionResult {
 
 const FILENAME: &'static str = "state.json";
 
+/**
+  Stores state that should persist between bot restarts.
+
+  The data is stored as json and is loaded lazily on the first use
+  of the struct.
+
+  Data is not automatically reloaded on file changes
+*/
 #[derive(Serialize, Deserialize)]
 struct PersistentState {
     theme_ideas: HashMap<UserId, String>,
@@ -46,6 +54,7 @@ struct PersistentState {
 }
 
 impl PersistentState {
+    /// Load the data from disk, or default initialise it if the file doesn't exist
     fn load() -> Result<Self> {
         if PathBuf::from(FILENAME).exists() {
             let mut file = File::open(FILENAME)?;
@@ -61,6 +70,10 @@ impl PersistentState {
         }
     }
 
+    /**
+      Return a global instance of the struct. The instance is global to
+      avoid race conditions, especially with data stored on disk
+    */
     pub fn instance() -> &'static Mutex<Self> {
         lazy_static! {
             static ref INSTANCE: Mutex<PersistentState> = Mutex::new(
@@ -70,6 +83,10 @@ impl PersistentState {
         &INSTANCE
     }
 
+    /**
+      Tries to add a theme submission by the user. Replaces the previous theme
+      if the user had one previously. If file saving fails, returns Err
+    */
     pub fn try_add_theme(
         &mut self,
         user: UserId,
@@ -87,15 +104,18 @@ impl PersistentState {
         }
     }
 
+    /// Checks if the user is allowed to create a channel
     pub fn is_allowed_channel(&mut self, id: UserId) -> bool {
         !self.channel_creators.contains(&id)
     }
 
+    /// Registers that the user has created a channel
     pub fn register_channel_creation(&mut self, id: UserId) -> Result<()> {
         self.channel_creators.insert(id);
         self.save()
     }
 
+    /// Save the state to disk. Should be called after all modifications
     pub fn save(&self) -> Result<()> {
         let mut file = File::create(FILENAME)
             .with_context(|| format!("failed to open {} for writing", FILENAME))?;
@@ -157,6 +177,7 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+/// Checks if the specified channel is a private message channel
 async fn is_pm(http: &HttpClient, channel_id: ChannelId) -> Result<bool> {
     match http.channel(channel_id).await?.unwrap() {
         Channel::Private(_) => Ok(true),
@@ -174,32 +195,7 @@ async fn handle_event(
             // Don't send replies to yourself
             if msg.author.id != current_user.id {
                 if is_pm(&http, msg.channel_id).await? {
-                    // Check if the message is a single word
-                    if msg.content.split_ascii_whitespace().count() != 1 {
-                        http.create_message(msg.channel_id)
-                            .content("Themes ideas should only be a single word")
-                            .await?;
-                    }
-                    else {
-                        let has_old_theme = PersistentState::instance().lock().unwrap()
-                            .try_add_theme(msg.author.id, &msg.content)
-                            .context("failed to save theme")?;
-
-                        match has_old_theme {
-                            SubmissionResult::Done => {
-                                // Check if the message is a PM
-                                http.create_message(msg.channel_id)
-                                    .content("Theme idea registered, thanks!")
-                                    .await?;
-                            }
-                            SubmissionResult::AlreadySubmitted => {
-                                // Check if the message is a PM
-                                http.create_message(msg.channel_id)
-                                    .content("You can only send one idea. We replaced your old submission")
-                                    .await?;
-                            }
-                        }
-                    }
+                    handle_pm(&msg, &http).await?;
                 }
                 else {
                     handle_potential_command(&msg, http, current_user)
@@ -213,6 +209,38 @@ async fn handle_event(
         _ => {}
     }
 
+    Ok(())
+}
+
+
+async fn handle_pm(msg: &Message, http: &HttpClient) -> Result<()> {
+    // Check if the message is a single word
+    if msg.content.split_ascii_whitespace().count() != 1 {
+        http.create_message(msg.channel_id)
+            .content("Themes ideas should only be a single word")
+            .await?;
+    }
+    else {
+        let had_old_theme = PersistentState::instance().lock()
+            .unwrap()
+            .try_add_theme(msg.author.id, &msg.content)
+            .context("failed to save theme")?;
+
+        match had_old_theme {
+            SubmissionResult::Done => {
+                // Check if the message is a PM
+                http.create_message(msg.channel_id)
+                    .content("Theme idea registered, thanks!")
+                    .await?;
+            }
+            SubmissionResult::AlreadySubmitted => {
+                // Check if the message is a PM
+                http.create_message(msg.channel_id)
+                    .content("You can only send one idea. We replaced your old submission")
+                    .await?;
+            }
+        }
+    }
     Ok(())
 }
 
