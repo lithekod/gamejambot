@@ -10,7 +10,6 @@ use serde_derive::{Serialize, Deserialize};
 use anyhow::Context;
 use lazy_static::lazy_static;
 use serde_json;
-use regex::Regex;
 
 use twilight::{
     cache::{
@@ -250,24 +249,12 @@ async fn handle_create_channel<'a>(
     guild: GuildId,
     http: HttpClient
 ) -> Result<()> {
-    lazy_static! {
-        static ref VALID_REGEX: Regex = Regex::new("[_A-z0-9]+").unwrap();
-    }
     println!("got request for channel with name {:?}", rest_command);
     let reply = if rest_command.len() == 0 {
         "You need to specify a team name".to_string()
     }
     else if rest_command.len() > 1 {
         "Channel names can not contain whitespace".into()
-    }
-    // Check if the name is valid
-    else if !VALID_REGEX.find_iter(rest_command[0])
-            // The regex crate does not have a function to check if the whole string
-            // matches the regex. Instead we check if any of the matches
-            // are the same as the whole string being searched
-            .any(|m| m.as_str() == rest_command[0])
-    {
-        "Channel names can only contain A-z, _ and digits".into()
     }
     else {
         let request = http.create_guild_channel(guild, rest_command[0])
