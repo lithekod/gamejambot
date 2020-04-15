@@ -215,6 +215,24 @@ async fn handle_potential_command(
                 http
             ).await?;
         },
+        Some("~role") => {
+            handle_give_role(
+                &words.collect::<Vec<_>>(),
+                msg.channel_id,
+                msg.guild_id.expect("Tried to create channel in non-guild"),
+                msg.author.id,
+                http
+            ).await?;
+        },
+        Some("~leave") => {
+            handle_remove_role(
+                &words.collect::<Vec<_>>(),
+                msg.channel_id,
+                msg.guild_id.expect("Tried to create channel in non-guild"),
+                msg.author.id,
+                http
+            ).await?;
+        },
         Some(s) if s.chars().next() == Some('~') => {
             http.create_message(msg.channel_id)
                 .content("Unrecognised command")
@@ -238,7 +256,7 @@ async fn send_help_message(
     http: HttpClient,
 ) -> Result<()> {
     http.create_message(channel_id)
-        .content("Talk to me in a PM to submit theme ideas.\n\nYou can also ask for a voice channel by sending `~create_channel <channel name>`")
+        .content("Talk to me in a PM to submit theme ideas.\n\nYou can also ask for a voice channel by sending `~create_channel <channel name>`\n\nGet a new role with `~role <role name>`\nand leave a role with `~leave <role name>`")
         .await?;
     Ok(())
 }
@@ -289,6 +307,88 @@ async fn handle_create_channel<'a>(
                 "Channel creation failed, check logs for details".into()
             }
         }
+    };
+
+    http.create_message(original_channel)
+        .content(&reply)
+        .await?;
+
+    Ok(())
+}
+
+async fn handle_give_role<'a>(
+    rest_command: &[&'a str],
+    original_channel: ChannelId,
+    guild: GuildId,
+    msg_author_id: UserId,
+    http: HttpClient
+) -> Result<()> {
+    let mut message = "You need to to specify a valid role.\nAvailable roles are:```Programmer\n2D Artist\n3D Artist\nSound Designer\nMusician\nBoard Games```";
+
+    let reply : String = if rest_command.len() == 0 {
+        message.into()
+    }
+    else {
+        let guild_roles = http.roles(guild).await?;
+
+        for role in guild_roles {
+            if role.name.to_lowercase() == rest_command.join(" ").to_lowercase() {
+                let request = http.add_guild_member_role(guild, msg_author_id, role.id);
+
+                match request.await {
+                    Ok(_) => {
+                        message = "New role assigned.";
+                        println!("New role {} assigned to {}", role.name, msg_author_id);
+                    }
+                    Err(e) => {
+                        message = "Something went wrong.";
+                        println!("Couldn't assign role {} to {}\n{}", role.name, msg_author_id, e);
+                    }
+                }
+            }
+        }
+        message.into()
+    };
+
+    http.create_message(original_channel)
+        .content(&reply)
+        .await?;
+
+    Ok(())
+}
+
+async fn handle_remove_role<'a>(
+    rest_command: &[&'a str],
+    original_channel: ChannelId,
+    guild: GuildId,
+    msg_author_id: UserId,
+    http: HttpClient
+) -> Result<()> {
+    let mut message = "You need to to specify a valid role.\nAvailable roles are:```Programmer\n2D Artist\n3D Artist\nSound Designer\nMusician\nBoard Games```";
+
+    let reply : String = if rest_command.len() == 0 {
+        message.into()
+    }
+    else {
+        let guild_roles = http.roles(guild).await?;
+
+        for role in guild_roles {
+            if role.name.to_lowercase() == rest_command.join(" ").to_lowercase() {
+                let request = http.remove_guild_member_role(guild, msg_author_id, role.id);
+
+                match request.await {
+                    Ok(_) => {
+                        message = "Role removed.";
+                        println!("{} left the role {}", msg_author_id, role.name);
+                    }
+                    Err(e) => {
+                        message = "Something went wrong.";
+                        println!("Couldn't remove role {} from {}\n{}", role.name, msg_author_id, e);
+                    }
+                }
+            }
+        }
+        message.into()
     };
 
     http.create_message(original_channel)
