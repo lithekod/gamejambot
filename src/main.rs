@@ -279,7 +279,7 @@ async fn handle_create_team_channels<'a>(
                             Err(e) => {
                                 println!(
                                     "Failed to create voice channel {}. Error: {:?}",
-                                    rest_command[0],
+                                    team_name,
                                     e
                                 );
                                 "Voice channel creation failed, check logs for details"
@@ -289,7 +289,7 @@ async fn handle_create_team_channels<'a>(
                     Err(e) => {
                         println!(
                             "Failed to create text channel {}. Error: {:?}",
-                            rest_command[0],
+                            team_name,
                             e
                         );
                         "Text channel creation failed, check logs for details"
@@ -302,7 +302,7 @@ async fn handle_create_team_channels<'a>(
             Err(e) => {
                 println!(
                     "Failed to create category {}. Error: {:?}",
-                    rest_command[0],
+                    team_name,
                     e
                 );
                 "Category creation failed, check logs for details".into()
