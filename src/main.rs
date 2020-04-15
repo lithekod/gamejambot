@@ -251,10 +251,10 @@ async fn handle_potential_command(
 ) -> Result<()> {
     let mut words = msg.content.split_ascii_whitespace();
     match words.next() {
-        Some("~help") => {
+        Some("!help") => {
             send_help_message(msg.channel_id, http).await?;
         }
-        Some("~create_team_channels") => {
+        Some("!create_team_channels") => {
             let result = handle_create_team_channels(
                 &words.collect::<Vec<_>>(),
                 msg.guild_id.expect("Tried to create channel in non-guild"),
@@ -279,7 +279,7 @@ async fn handle_potential_command(
                 }
             }
         },
-        Some(s) if s.chars().next() == Some('~') => {
+        Some(s) if s.chars().next() == Some('!') => {
             http.create_message(msg.channel_id)
                 .content("Unrecognised command")
                 .await?;
@@ -302,7 +302,7 @@ async fn send_help_message(
     http: HttpClient,
 ) -> Result<()> {
     http.create_message(channel_id)
-        .content("Send me a PM to submit theme ideas.\n\nYou can also ask for a text channel and a voice channel by sending `~create_team_channels <team name>`")
+        .content("Send me a PM to submit theme ideas.\n\nYou can also ask for a text channel and a voice channel by sending `!create_team_channels <team name>`")
         .await?;
     Ok(())
 }
