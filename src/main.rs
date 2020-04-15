@@ -10,6 +10,7 @@ use serde_derive::{Serialize, Deserialize};
 use anyhow::Context;
 use lazy_static::lazy_static;
 use serde_json;
+use regex::Regex;
 
 use twilight::{
     cache::{
@@ -255,7 +256,7 @@ async fn send_help_message(
     http: HttpClient,
 ) -> Result<()> {
     http.create_message(channel_id)
-        .content("Talk to me in a PM to submit theme ideas.\n\nYou can also ask for a voice channel by sending `~create_team_channels <channel name>`")
+        .content("Send me a PM to submit theme ideas.\n\nYou can also ask for a text channel and a voice channel by sending `~create_team_channels <team name>`")
         .await?;
     Ok(())
 }
@@ -275,10 +276,18 @@ async fn handle_create_team_channels<'a>(
         return Ok(())
     }
 
+    lazy_static! {
+        static ref INVALID_REGEX: Regex = Regex::new("[-+*_#=.⋅`\"|<>{}]+").unwrap();
+    }
+
     let team_name = &*rest_command.join(" ");
     println!("got request for channel with name {:?}", team_name);
     let reply = if rest_command.len() == 0 {
         "You need to specify a team name".to_string()
+    }
+    // Check if the name is valid
+    else if INVALID_REGEX.is_match(team_name) {
+        "Team names cannot contain any of the characters -+*_#=.⋅`\"|<>{}".into()
     }
     else {
         // Category
