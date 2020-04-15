@@ -263,9 +263,12 @@ async fn handle_potential_command(
             ).await;
 
             match result {
-                Ok(()) => {
+                Ok(team) => {
                     http.create_message(msg.channel_id)
-                        .content("Channel created 🎊")
+                        .content(format!(
+                            "Channels created for team {} here: <#{}>",
+                            team.team_name, team.text_id
+                        ))
                         .await?;
                 }
                 Err(ref e) => {
@@ -311,7 +314,7 @@ async fn handle_create_team_channels<'a>(
     guild: GuildId,
     user: UserId,
     http: &HttpClient
-) -> std::result::Result<(), ChannelCreationError<>> {
+) -> std::result::Result<CreatedTeam, ChannelCreationError<>> {
     lazy_static! {
         static ref INVALID_REGEX: Regex = Regex::new("[-+*_#=.⋅`\"|<>{}]+").unwrap();
     }
@@ -344,11 +347,19 @@ async fn handle_create_team_channels<'a>(
                     }
                 })?;
 
-            http.create_guild_channel(guild, team_name)
+            let text = http.create_guild_channel(guild, team_name)
                 .parent_id(category.id)
                 .kind(ChannelType::GuildText)
                 .await
-                .map_err(|e| ChannelCreationError::TextCreationFailed(e))?;
+                .map_err(|e| ChannelCreationError::TextCreationFailed(e))
+                .and_then(|maybe_text| {
+                    match maybe_text {
+                        GuildChannel::Category(text) => { // For some reason it isn't a GuildChannel::Text
+                            Ok(text)
+                        }
+                        _ => Err(ChannelCreationError::TextNotCreated)
+                    }
+                })?;
 
             http.create_guild_channel(guild, team_name)
                 .parent_id(category.id)
@@ -360,11 +371,22 @@ async fn handle_create_team_channels<'a>(
                 .register_channel_creation(user)
                 .unwrap();
 
-            Ok(())
+            Ok(CreatedTeam{
+                team_name: team_name.to_owned(),
+                text_id: text.id
+            })
         }
     }
 }
 
+/**
+  Info about the channels created for a team
+*/
+#[derive(Debug)]
+struct CreatedTeam {
+    pub team_name: String,
+    pub text_id: ChannelId
+}
 
 /**
   Error type for channel creation attempts
@@ -382,6 +404,12 @@ enum ChannelCreationError {
     /// The discord API said everything was fine but created something
     /// that was not a category
     CategoryNotCreated,
+    /// The discord API said everything was fine but created something
+    /// that was not a text channel
+    TextNotCreated,
+    /// The discord API said everything was fine but created something
+    /// that was not a voice channel
+    VoiceNotCreated,
     /// The discord API returned an error when creating category
     CategoryCreationFailed(DiscordError),
     /// The discord API returned an error when creating text channel
@@ -396,7 +424,11 @@ impl Display for ChannelCreationError {
             Self::AlreadyCreated => "You already created a channel",
             Self::NoName => "You need to specify a channel name",
             Self::CategoryNotCreated =>
-                "I asked discord for a category but got something else 🤔",
+                "I asked Discord for a category but got something else 🤔",
+            Self::TextNotCreated =>
+                "I asked Discord for a text channel but got something else 🤔",
+            Self::VoiceNotCreated =>
+                "I asked Discord for a voice channel but got something else 🤔",
             Self::InvalidName =>
                 "Team names cannot contain any of the characters -+*_#=.⋅`\"|<>{}",
             Self::CategoryCreationFailed(_) => "Category creation failed",
@@ -413,6 +445,8 @@ impl std::error::Error for ChannelCreationError {
             Self::AlreadyCreated
                 | Self::NoName
                 | Self::CategoryNotCreated
+                | Self::TextNotCreated
+                | Self::VoiceNotCreated
                 | Self::InvalidName => None,
             Self::CategoryCreationFailed(e)
                 | Self::TextCreationFailed(e)
