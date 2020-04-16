@@ -256,7 +256,7 @@ async fn handle_potential_command(
         Some("!help") => {
             send_help_message(msg.channel_id, http).await?;
         }
-        Some("!create_team_channels") => {
+        Some("!createchannels") => {
             let result = handle_create_team_channels(
                 &words.collect::<Vec<_>>(),
                 msg.guild_id.expect("Tried to create channel in non-guild"),
@@ -299,7 +299,7 @@ async fn handle_potential_command(
                 http
             ).await?;
         },
-        Some("!generate_theme") => {
+        Some("!generatetheme") => {
             let theme = do_theme_generation();
             let send_result = http.create_message(msg.channel_id)
                 .content(&theme)
@@ -339,7 +339,7 @@ async fn send_help_message(
     http: HttpClient,
 ) -> Result<()> {
     http.create_message(channel_id)
-        .content("Send me a PM to submit theme ideas.\n\nYou can also ask for a text channel and a voice channel by sending `!create_team_channels <team name>`\n\nGet a new role with `!role <role name>`\nand leave a role with `!leave <role name>`")
+        .content("Send me a PM to submit theme ideas.\n\nYou can also ask for a text channel and a voice channel with the command `!createchannels <team name>`\n\nGet a new role with `!role <role name>`\nand leave a role with `!leave <role name>`")
         .await?;
     Ok(())
 }
