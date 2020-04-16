@@ -1,4 +1,4 @@
-# LiU Gamejam Bot
+# LiU Game Jam Bot
 
 A discord bot for doing various gamejam related things.
 
@@ -6,6 +6,7 @@ A discord bot for doing various gamejam related things.
 - [x] Register theme ideas through PM
 - [x] Theme generation based on submitted themes
 - [x] Request roles for skills
+- [ ] Require the Organizer role for theme generation 
 
 ## Usage
 
