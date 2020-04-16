@@ -492,7 +492,7 @@ async fn handle_give_role<'a>(
     msg_author_id: UserId,
     http: HttpClient
 ) -> Result<()> {
-    let mut message = "You need to to specify a valid role.\nAvailable roles are:```Programmer\n2D Artist\n3D Artist\nSound Designer\nMusician\nIdea Guy\nBoard Games```";
+    let mut message = "You need to to specify a valid role.\nAvailable roles are:```Programmer\n2D Artist\n3D Artist\nSound Designer\nMusician\nIdea Guy\nBoard Games```".to_string();
 
     let reply : String = if rest_command.len() == 0 {
         message.into()
@@ -506,11 +506,11 @@ async fn handle_give_role<'a>(
 
                 match request.await {
                     Ok(_) => {
-                        message = "New role assigned.";
+                        message = format!("You have been assigned the role **{}**.", role.name);
                         println!("New role {} assigned to {}", role.name, msg_author_id);
                     }
                     Err(e) => {
-                        message = "Something went wrong.";
+                        message = "Something went wrong.".to_string();
                         println!("Couldn't assign role {} to {}\n{}", role.name, msg_author_id, e);
                     }
                 }
@@ -520,7 +520,7 @@ async fn handle_give_role<'a>(
     };
 
     http.create_message(original_channel)
-        .content(&reply)
+        .content(format!("<@{}> {}", msg_author_id, reply))
         .await?;
 
     Ok(())
@@ -533,7 +533,7 @@ async fn handle_remove_role<'a>(
     msg_author_id: UserId,
     http: HttpClient
 ) -> Result<()> {
-    let mut message = "You need to to specify a valid role.\nAvailable roles are:```Programmer\n2D Artist\n3D Artist\nSound Designer\nMusician\nBoard Games```";
+    let mut message = "You need to to specify a valid role.\nAvailable roles are:```Programmer\n2D Artist\n3D Artist\nSound Designer\nMusician\nIdea Guy\nBoard Games```".to_string();
 
     let reply : String = if rest_command.len() == 0 {
         message.into()
@@ -547,11 +547,11 @@ async fn handle_remove_role<'a>(
 
                 match request.await {
                     Ok(_) => {
-                        message = "Role removed.";
+                        message = format!("You have been stripped of the role **{}**.", role.name);
                         println!("{} left the role {}", msg_author_id, role.name);
                     }
                     Err(e) => {
-                        message = "Something went wrong.";
+                        message = "Something went wrong.".to_string();
                         println!("Couldn't remove role {} from {}\n{}", role.name, msg_author_id, e);
                     }
                 }
@@ -561,7 +561,7 @@ async fn handle_remove_role<'a>(
     };
 
     http.create_message(original_channel)
-        .content(&reply)
+        .content(format!("<@{}> {}", msg_author_id, reply))
         .await?;
 
     Ok(())
