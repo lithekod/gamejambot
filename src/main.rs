@@ -516,7 +516,6 @@ async fn handle_give_role<'a>(
                         println!("New role {} assigned to {}", role.name, msg_author_id);
                     }
                     Err(e) => {
-                        message = "Something went wrong.".to_string();
                         println!("Couldn't assign role {} to {}\n{}", role.name, msg_author_id, e);
                     }
                 }
@@ -557,7 +556,6 @@ async fn handle_remove_role<'a>(
                         println!("{} left the role {}", msg_author_id, role.name);
                     }
                     Err(e) => {
-                        message = "Something went wrong.".to_string();
                         println!("Couldn't remove role {} from {}\n{}", role.name, msg_author_id, e);
                     }
                 }
