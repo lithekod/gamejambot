@@ -268,14 +268,14 @@ async fn handle_potential_command(
                 Ok(team) => {
                     http.create_message(msg.channel_id)
                         .content(format!(
-                            "Channels created for the game {} here: <#{}>",
-                            team.game_name, team.text_id
+                            "<@{}> Channels created for your game {} here: <#{}>",
+                            msg.author.id, team.game_name, team.text_id
                         ))
                         .await?;
                 }
                 Err(ref e) => {
                     http.create_message(msg.channel_id)
-                        .content(format!("{}", e))
+                        .content(format!("<@{}> {}", msg.author.id, e))
                         .await?;
                     println!("Channel creation failed: {:?}", e);
                 }
@@ -339,7 +339,7 @@ async fn send_help_message(
     http: HttpClient,
 ) -> Result<()> {
     http.create_message(channel_id)
-        .content("Send me a PM to submit theme ideas.\n\nYou can also ask for a text channel and a voice channel with the command `!createchannels <game name>`\n\nGet a new role with `!role <role name>`\nand leave a role with `!leave <role name>`")
+        .content("Send me a PM to submit theme ideas.\n\nYou can also ask for text and voice channels for your game with the command `!createchannels <game name>`\n\nGet a new role with `!role <role name>`\nand leave a role with `!leave <role name>`")
         .await?;
     Ok(())
 }
@@ -384,7 +384,7 @@ async fn handle_create_team_channels<'a>(
     }
     else {
         let game_name = &*rest_command.join(" ");
-        println!("Got a request for a team for the game {:?}", game_name);
+        println!("Got a request for channels for the game {:?}", game_name);
         if rest_command.len() == 0 {
             Err(ChannelCreationError::NoName)
         }
@@ -570,7 +570,7 @@ async fn handle_remove_role<'a>(
 impl Display for ChannelCreationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let msg = match self {
-            Self::AlreadyCreated => "You already created a channel",
+            Self::AlreadyCreated => "You have already created channels for your game",
             Self::NoName => "You need to specify a channel name",
             Self::CategoryNotCreated =>
                 "I asked Discord for a category but got something else 🤔",
