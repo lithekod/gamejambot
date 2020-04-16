@@ -2,7 +2,7 @@ use std::env;
 use std::fs::File;
 use std::io::prelude::*;
 use std::sync::Mutex;
-use std::collections::{HashSet, HashMap};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::fmt::{Debug, Display};
 
@@ -52,7 +52,7 @@ const FILENAME: &'static str = "state.json";
 #[derive(Serialize, Deserialize)]
 struct PersistentState {
     theme_ideas: HashMap<UserId, String>,
-    channel_creators: HashSet<UserId>
+    channel_creators: HashMap<UserId, (String, ChannelId)>,
 }
 
 impl PersistentState {
@@ -67,7 +67,7 @@ impl PersistentState {
         else {
             Ok(Self {
                 theme_ideas: HashMap::new(),
-                channel_creators: HashSet::new(),
+                channel_creators: HashMap::new(),
             })
         }
     }
@@ -108,12 +108,17 @@ impl PersistentState {
 
     /// Checks if the user is allowed to create a channel
     pub fn is_allowed_channel(&mut self, id: UserId) -> bool {
-        !self.channel_creators.contains(&id)
+        !self.channel_creators.contains_key(&id)
+    }
+
+    /// Get the user's current channel
+    pub fn get_channel_info(&mut self, id: UserId) -> Option<&(String, ChannelId)> {
+        self.channel_creators.get(&id)
     }
 
     /// Registers that the user has created a channel
-    pub fn register_channel_creation(&mut self, id: UserId) -> Result<()> {
-        self.channel_creators.insert(id);
+    pub fn register_channel_creation(&mut self, user_id: UserId, game_name: &String, text_id: ChannelId) -> Result<()> {
+        self.channel_creators.insert(user_id, (game_name.to_string(), text_id));
         self.save()
     }
 
@@ -380,7 +385,7 @@ async fn handle_create_team_channels<'a>(
     }
 
     if !PersistentState::instance().lock().unwrap().is_allowed_channel(user) {
-        Err(ChannelCreationError::AlreadyCreated)
+        Err(ChannelCreationError::AlreadyCreated(user))
     }
     else {
         let game_name = &*rest_command.join(" ");
@@ -428,16 +433,17 @@ async fn handle_create_team_channels<'a>(
                 .await
                 .map_err(|e| ChannelCreationError::VoiceCreationFailed(e))?;
 
-            PersistentState::instance().lock().unwrap()
-                .register_channel_creation(user)
-                .unwrap();
-
             let game_name_markdown_safe = MARKDOWN_ESCAPE_REGEX.replace_all(game_name,
                 |caps: &Captures| {
                     format!("\\{}", &caps[0])
                 }
             ).to_string();
             println!("Markdown-safe name: {}", game_name_markdown_safe);
+
+            PersistentState::instance().lock().unwrap()
+                .register_channel_creation(user, &game_name_markdown_safe, text.id)
+                .unwrap();
+
             Ok(CreatedTeam{
                 game_name: game_name_markdown_safe,
                 text_id: text.id
@@ -463,7 +469,7 @@ struct CreatedTeam {
 #[derive(Debug)]
 enum ChannelCreationError {
     /// The user has already created a channel
-    AlreadyCreated,
+    AlreadyCreated(UserId),
     /// No name was specified
     NoName,
     /// The user used invalid characters in the channel name
@@ -570,19 +576,24 @@ async fn handle_remove_role<'a>(
 impl Display for ChannelCreationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let msg = match self {
-            Self::AlreadyCreated => "You have already created channels for your game",
-            Self::NoName => "You need to specify a channel name",
+            Self::AlreadyCreated(user) => {
+                let mut ps = PersistentState::instance().lock().unwrap();
+                let (game_name, text_id) = ps.get_channel_info(*user).unwrap();
+                format!("You have already created channels for your game {} here: <#{}>",
+                    game_name, text_id)
+            }
+            Self::NoName => "You need to specify a channel name".to_string(),
             Self::CategoryNotCreated =>
-                "I asked Discord for a category but got something else 🤔",
+                "I asked Discord for a category but got something else 🤔".to_string(),
             Self::TextNotCreated =>
-                "I asked Discord for a text channel but got something else 🤔",
+                "I asked Discord for a text channel but got something else 🤔".to_string(),
             Self::VoiceNotCreated =>
-                "I asked Discord for a voice channel but got something else 🤔",
+                "I asked Discord for a voice channel but got something else 🤔".to_string(),
             Self::InvalidName =>
-                "Team names cannot contain the character `",
-            Self::CategoryCreationFailed(_) => "Category creation failed",
-            Self::TextCreationFailed(_) => "Text channel creation failed",
-            Self::VoiceCreationFailed(_) => "Voice channel creation failed",
+                "Team names cannot contain the character `".to_string(),
+            Self::CategoryCreationFailed(_) => "Category creation failed".to_string(),
+            Self::TextCreationFailed(_) => "Text channel creation failed".to_string(),
+            Self::VoiceCreationFailed(_) => "Voice channel creation failed".to_string(),
         };
         write!(f, "{}", msg)
     }
@@ -591,7 +602,7 @@ impl Display for ChannelCreationError {
 impl std::error::Error for ChannelCreationError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::AlreadyCreated
+            Self::AlreadyCreated(_)
                 | Self::NoName
                 | Self::CategoryNotCreated
                 | Self::TextNotCreated
