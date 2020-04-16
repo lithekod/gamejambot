@@ -410,6 +410,7 @@ async fn handle_create_team_channels<'a>(
             let text = http.create_guild_channel(guild, game_name)
                 .parent_id(category.id)
                 .kind(ChannelType::GuildText)
+                .topic(format!("Work on and playtesting of the game {}", game_name))
                 .await
                 .map_err(|e| ChannelCreationError::TextCreationFailed(e))
                 .and_then(|maybe_text| {
