@@ -125,9 +125,9 @@ impl PersistentState {
     /// Save the state to disk. Should be called after all modifications
     pub fn save(&self) -> Result<()> {
         let mut file = File::create(FILENAME)
-            .with_context(|| format!("failed to open {} for writing", FILENAME))?;
+            .with_context(|| format!("Failed to open {} for writing", FILENAME))?;
         file.write_all(serde_json::to_string(&self)?.as_bytes())
-            .with_context(|| format!("failed to write to {}", FILENAME))?;
+            .with_context(|| format!("Failed to write to {}", FILENAME))?;
         Ok(())
     }
 }
@@ -175,7 +175,7 @@ async fn main() -> Result<()> {
     // Startup an event loop for each event in the event stream
     while let Some(event) = events.next().await {
         // Update the cache
-        cache.update(&event.1).await.expect("Cache failed, OhNoe");
+        cache.update(&event.1).await.expect("Cache failed, OhNoe!");
 
         // Spawn a new task to handle the event
         handle_event(event, http.clone(), &current_user).await?;
@@ -224,14 +224,14 @@ async fn handle_pm(msg: &Message, http: &HttpClient) -> Result<()> {
     // Check if the message is a single word
     if msg.content.split_ascii_whitespace().count() != 1 {
         http.create_message(msg.channel_id)
-            .content("Themes ideas should only be a single word")
+            .content("Themes ideas should only be a single word.")
             .await?;
     }
     else {
         let had_old_theme = PersistentState::instance().lock()
             .unwrap()
             .try_add_theme(msg.author.id, &msg.content)
-            .context("failed to save theme")?;
+            .context("Failed to save theme")?;
 
         match had_old_theme {
             SubmissionResult::Done => {
@@ -243,7 +243,7 @@ async fn handle_pm(msg: &Message, http: &HttpClient) -> Result<()> {
             SubmissionResult::AlreadySubmitted => {
                 // Check if the message is a PM
                 http.create_message(msg.channel_id)
-                    .content("You can only send one idea. We replaced your old submission")
+                    .content("You can only send one idea. We replaced your old submission.")
                     .await?;
             }
         }
@@ -314,7 +314,7 @@ async fn handle_potential_command(
                 Ok(_) => {},
                 Err(e) => {
                     http.create_message(msg.channel_id)
-                        .content("Failed to send theme, has someone been naughty 🤔")
+                        .content("Failed to send theme, has someone been naughty. 🤔")
                         .await?;
                     println!("Failed to send theme message {:?}", e);
                     println!("Message should have been: {:?}", theme);
@@ -323,7 +323,7 @@ async fn handle_potential_command(
         }
         Some(s) if s.chars().next() == Some('!') => {
             http.create_message(msg.channel_id)
-                .content("Unrecognised command")
+                .content("Unrecognised command.")
                 .await?;
             send_help_message(msg.channel_id, http).await?;
         }
@@ -344,7 +344,7 @@ async fn send_help_message(
     http: HttpClient,
 ) -> Result<()> {
     http.create_message(channel_id)
-        .content("Send me a PM to submit theme ideas.\n\nYou can also ask for text and voice channels for your game with the command `!createchannels <game name>`\n\nGet a new role with `!role <role name>`\nand leave a role with `!leave <role name>`")
+        .content("Send me a PM to submit theme ideas.\n\nYou can also ask for text and voice channels for your game with the command `!createchannels <game name>`.\n\nGet a new role with `!role <role name>`\nand leave a role with `!leave <role name>`.")
         .await?;
     Ok(())
 }
@@ -364,7 +364,7 @@ fn do_theme_generation() -> String {
     selected.shuffle(&mut rng);
 
     if selected.len() != 2 {
-        "Not enough ideas have been submitted yet".to_string()
+        "Not enough ideas have been submitted yet.".to_string()
     }
     else {
         format!("The theme is: {} {}", selected[0], selected[1])
@@ -415,7 +415,7 @@ async fn handle_create_team_channels<'a>(
             let text = http.create_guild_channel(guild, game_name)
                 .parent_id(category.id)
                 .kind(ChannelType::GuildText)
-                .topic(format!("Work on and playtesting of the game {}", game_name))
+                .topic(format!("Work on and playtesting of the game {}.", game_name))
                 .await
                 .map_err(|e| ChannelCreationError::TextCreationFailed(e))
                 .and_then(|maybe_text| {
@@ -582,18 +582,18 @@ impl Display for ChannelCreationError {
                 format!("You have already created channels for your game {} here: <#{}>",
                     game_name, text_id)
             }
-            Self::NoName => "You need to specify a channel name".to_string(),
+            Self::NoName => "You need to specify a game name.".to_string(),
             Self::CategoryNotCreated =>
-                "I asked Discord for a category but got something else 🤔".to_string(),
+                "I asked Discord for a category but got something else. 🤔".to_string(),
             Self::TextNotCreated =>
-                "I asked Discord for a text channel but got something else 🤔".to_string(),
+                "I asked Discord for a text channel but got something else. 🤔".to_string(),
             Self::VoiceNotCreated =>
-                "I asked Discord for a voice channel but got something else 🤔".to_string(),
+                "I asked Discord for a voice channel but got something else. 🤔".to_string(),
             Self::InvalidName =>
                 "Team names cannot contain the character `".to_string(),
-            Self::CategoryCreationFailed(_) => "Category creation failed".to_string(),
-            Self::TextCreationFailed(_) => "Text channel creation failed".to_string(),
-            Self::VoiceCreationFailed(_) => "Voice channel creation failed".to_string(),
+            Self::CategoryCreationFailed(_) => "Category creation failed.".to_string(),
+            Self::TextCreationFailed(_) => "Text channel creation failed.".to_string(),
+            Self::VoiceCreationFailed(_) => "Voice channel creation failed.".to_string(),
         };
         write!(f, "{}", msg)
     }
