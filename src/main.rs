@@ -12,6 +12,7 @@ use anyhow::Context;
 use lazy_static::lazy_static;
 use serde_json;
 use regex::Regex;
+use regex::Captures;
 use rand::seq::{SliceRandom, IteratorRandom};
 
 use twilight::{
@@ -374,7 +375,8 @@ async fn handle_create_team_channels<'a>(
     http: &HttpClient
 ) -> std::result::Result<CreatedTeam, ChannelCreationError<>> {
     lazy_static! {
-        static ref INVALID_REGEX: Regex = Regex::new("[-+*_#=.⋅`\"\\\\|<>{}]+").unwrap();
+        static ref INVALID_REGEX: Regex = Regex::new("[`]+").unwrap();
+        static ref MARKDOWN_ESCAPE_REGEX: Regex = Regex::new("[-_+*\"#=.⋅\\\\<>{}]+").unwrap();
     }
 
     if !PersistentState::instance().lock().unwrap().is_allowed_channel(user) {
@@ -429,8 +431,14 @@ async fn handle_create_team_channels<'a>(
                 .register_channel_creation(user)
                 .unwrap();
 
+            let team_name_markdown_safe = MARKDOWN_ESCAPE_REGEX.replace_all(team_name,
+                |caps: &Captures| {
+                    format!("\\{}", &caps[0])
+                }
+            ).to_string();
+            println!("Markdown-safe name: {}", team_name_markdown_safe);
             Ok(CreatedTeam{
-                team_name: team_name.to_owned(),
+                team_name: team_name_markdown_safe,
                 text_id: text.id
             })
         }
@@ -570,7 +578,7 @@ impl Display for ChannelCreationError {
             Self::VoiceNotCreated =>
                 "I asked Discord for a voice channel but got something else 🤔",
             Self::InvalidName =>
-                "Team names cannot contain any of the characters -+*_#=.⋅`\"\\\\|<>{}",
+                "Team names cannot contain the character `",
             Self::CategoryCreationFailed(_) => "Category creation failed",
             Self::TextCreationFailed(_) => "Text channel creation failed",
             Self::VoiceCreationFailed(_) => "Voice channel creation failed",
