@@ -268,8 +268,8 @@ async fn handle_potential_command(
                 Ok(team) => {
                     http.create_message(msg.channel_id)
                         .content(format!(
-                            "Channels created for team {} here: <#{}>",
-                            team.team_name, team.text_id
+                            "Channels created for the game {} here: <#{}>",
+                            team.game_name, team.text_id
                         ))
                         .await?;
                 }
@@ -339,7 +339,7 @@ async fn send_help_message(
     http: HttpClient,
 ) -> Result<()> {
     http.create_message(channel_id)
-        .content("Send me a PM to submit theme ideas.\n\nYou can also ask for a text channel and a voice channel with the command `!createchannels <team name>`\n\nGet a new role with `!role <role name>`\nand leave a role with `!leave <role name>`")
+        .content("Send me a PM to submit theme ideas.\n\nYou can also ask for a text channel and a voice channel with the command `!createchannels <game name>`\n\nGet a new role with `!role <role name>`\nand leave a role with `!leave <role name>`")
         .await?;
     Ok(())
 }
@@ -383,16 +383,16 @@ async fn handle_create_team_channels<'a>(
         Err(ChannelCreationError::AlreadyCreated)
     }
     else {
-        let team_name = &*rest_command.join(" ");
-        println!("got request for team with name {:?}", team_name);
+        let game_name = &*rest_command.join(" ");
+        println!("Got a request for a team for the game {:?}", game_name);
         if rest_command.len() == 0 {
             Err(ChannelCreationError::NoName)
         }
-        else if INVALID_REGEX.is_match(team_name) {
+        else if INVALID_REGEX.is_match(game_name) {
             Err(ChannelCreationError::InvalidName)
         }
         else {
-            let category_name = format!("Team: {}", team_name);
+            let category_name = format!("Team: {}", game_name);
             // Create a category
             let category = http.create_guild_channel(guild, category_name)
                 .kind(ChannelType::GuildCategory)
@@ -407,7 +407,7 @@ async fn handle_create_team_channels<'a>(
                     }
                 })?;
 
-            let text = http.create_guild_channel(guild, team_name)
+            let text = http.create_guild_channel(guild, game_name)
                 .parent_id(category.id)
                 .kind(ChannelType::GuildText)
                 .await
@@ -421,7 +421,7 @@ async fn handle_create_team_channels<'a>(
                     }
                 })?;
 
-            http.create_guild_channel(guild, team_name)
+            http.create_guild_channel(guild, game_name)
                 .parent_id(category.id)
                 .kind(ChannelType::GuildVoice)
                 .await
@@ -431,14 +431,14 @@ async fn handle_create_team_channels<'a>(
                 .register_channel_creation(user)
                 .unwrap();
 
-            let team_name_markdown_safe = MARKDOWN_ESCAPE_REGEX.replace_all(team_name,
+            let game_name_markdown_safe = MARKDOWN_ESCAPE_REGEX.replace_all(game_name,
                 |caps: &Captures| {
                     format!("\\{}", &caps[0])
                 }
             ).to_string();
-            println!("Markdown-safe name: {}", team_name_markdown_safe);
+            println!("Markdown-safe name: {}", game_name_markdown_safe);
             Ok(CreatedTeam{
-                team_name: team_name_markdown_safe,
+                game_name: game_name_markdown_safe,
                 text_id: text.id
             })
         }
@@ -450,7 +450,7 @@ async fn handle_create_team_channels<'a>(
 */
 #[derive(Debug)]
 struct CreatedTeam {
-    pub team_name: String,
+    pub game_name: String,
     pub text_id: ChannelId
 }
 
