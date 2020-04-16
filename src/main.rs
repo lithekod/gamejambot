@@ -505,19 +505,26 @@ async fn handle_give_role<'a>(
     }
     else {
         let guild_roles = http.roles(guild).await?;
+        let author_roles = http.guild_member(guild, author.id).await?.unwrap().roles;
 
         for role in guild_roles {
             if role.name.to_lowercase() == rest_command.join(" ").to_lowercase() {
-                let request = http.add_guild_member_role(guild, author.id, role.id);
+                if !author_roles.contains(&role.id) {
+                    let request = http.add_guild_member_role(guild, author.id, role.id);
 
-                match request.await {
-                    Ok(_) => {
-                        message = format!("You have been assigned the role **{}**.", role.name);
-                        println!("New role {} assigned to {}", role.name, author.name);
+                    match request.await {
+                        Ok(_) => {
+                            message = format!("You have been assigned the role **{}**.", role.name);
+                            println!("New role {} assigned to {}", role.name, author.name);
+                        }
+                        Err(e) => {
+                            println!("Couldn't assign role {} to {}\n{}"., role.name, author.name, e);
+                        }
                     }
-                    Err(e) => {
-                        println!("Couldn't assign role {} to {}\n{}", role.name, author.name, e);
-                    }
+                }
+                else {
+                    message = format!("You already have the role **{}**.", role.name);
+                    println!("{} already has the role ({}) they are trying to get", author.name, role.name);
                 }
             }
         }
@@ -545,19 +552,26 @@ async fn handle_remove_role<'a>(
     }
     else {
         let guild_roles = http.roles(guild).await?;
+        let author_roles = http.guild_member(guild, author.id).await?.unwrap().roles;
 
         for role in guild_roles {
             if role.name.to_lowercase() == rest_command.join(" ").to_lowercase() {
-                let request = http.remove_guild_member_role(guild, author.id, role.id);
+                if author_roles.contains(&role.id) {
+                    let request = http.remove_guild_member_role(guild, author.id, role.id);
 
-                match request.await {
-                    Ok(_) => {
-                        message = format!("You have been stripped of the role **{}**.", role.name);
-                        println!("{} left the role {}", author.name, role.name);
+                    match request.await {
+                        Ok(_) => {
+                            message = format!("You have been stripped of the role **{}**.", role.name);
+                            println!("{} left the role {}", author.name, role.name);
+                        }
+                        Err(e) => {
+                            println!("Couldn't remove role {} from {}\n{}", role.name, author.name, e);
+                        }
                     }
-                    Err(e) => {
-                        println!("Couldn't remove role {} from {}\n{}", role.name, author.name, e);
-                    }
+                }
+                else {
+                    message = format!("You don't have the role **{}**.", role.name);
+                    println!("{} tried to leave a role ({}) they didn't have", author.name, role.name);
                 }
             }
         }
