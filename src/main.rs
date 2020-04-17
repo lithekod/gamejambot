@@ -518,7 +518,7 @@ async fn handle_give_role<'a>(
                             println!("New role {} assigned to {}", role.name, author.name);
                         }
                         Err(e) => {
-                            println!("Couldn't assign role {} to {}\n{}"., role.name, author.name, e);
+                            println!("Couldn't assign role {} to {}\n{}", role.name, author.name, e);
                         }
                     }
                 }
