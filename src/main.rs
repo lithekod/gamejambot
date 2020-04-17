@@ -259,7 +259,7 @@ async fn handle_potential_command(
     let mut words = msg.content.split_ascii_whitespace();
     match words.next() {
         Some("!help") => {
-            send_help_message(msg.channel_id, http).await?;
+            send_help_message(http, msg.channel_id, msg.author.id).await?;
         }
         Some("!createchannels") => {
             let result = handle_create_team_channels(
@@ -271,17 +271,17 @@ async fn handle_potential_command(
 
             match result {
                 Ok(team) => {
-                    http.create_message(msg.channel_id)
-                        .content(format!(
-                            "<@{}> Channels created for your game {} here: <#{}>",
-                            msg.author.id, team.game_name, team.text_id
-                        ))
-                        .await?;
+                    send_message(&http, msg.channel_id, msg.author.id,
+                        format!(
+                            "Channels created for your game {} here: <#{}>",
+                            team.game_name, team.text_id
+                        )
+                    ).await?;
                 }
                 Err(ref e) => {
-                    http.create_message(msg.channel_id)
-                        .content(format!("<@{}> {}", msg.author.id, e))
-                        .await?;
+                    send_message(&http, msg.channel_id, msg.author.id,
+                        format!("{}", e)
+                    ).await?;
                     println!("Channel creation failed: {:?}", e);
                 }
             }
@@ -306,32 +306,33 @@ async fn handle_potential_command(
         },
         Some("!generatetheme") => {
             let theme = do_theme_generation();
-            let send_result = http.create_message(msg.channel_id)
-                .content(&theme)
-                .await
-                .context("Failed to send theme");
+            let send_result = send_message(&http, msg.channel_id, msg.author.id,
+                &theme
+            )
+            .await
+            .context("Failed to send theme");
             match send_result {
                 Ok(_) => {},
                 Err(e) => {
-                    http.create_message(msg.channel_id)
-                        .content("Failed to send theme, has someone been naughty. 🤔")
-                        .await?;
+                    send_message(&http, msg.channel_id, msg.author.id,
+                        "Failed to send theme. Has someone been naughty? 🤔"
+                    ).await?;
                     println!("Failed to send theme message {:?}", e);
                     println!("Message should have been: {:?}", theme);
                 }
             }
         }
         Some(s) if s.chars().next() == Some('!') => {
-            http.create_message(msg.channel_id)
-                .content("Unrecognised command.")
-                .await?;
-            send_help_message(msg.channel_id, http).await?;
+            send_message(&http, msg.channel_id, msg.author.id,
+                format!("Unrecognised command `{}`.", s)
+            ).await?;
+            send_help_message(http, msg.channel_id, msg.author.id).await?;
         }
         // Not a command and probably not for us
         Some(_) => {
             // Check if we were mentioned
             if msg.mentions.contains_key(&current_user.id) {
-                send_help_message(msg.channel_id, http).await?;
+                send_help_message(http, msg.channel_id, msg.author.id).await?;
             }
         }
         None => {}
@@ -339,13 +340,30 @@ async fn handle_potential_command(
     Ok(())
 }
 
-async fn send_help_message(
+async fn send_message(
+    http: &HttpClient,
     channel_id: ChannelId,
-    http: HttpClient,
+    user_id: UserId,
+    content: impl Into<String> + Display,
 ) -> Result<()> {
     http.create_message(channel_id)
-        .content("Send me a PM to submit theme ideas.\n\nYou can also ask for text and voice channels for your game with the command `!createchannels <game name>`.\n\nGet a new role with `!role <role name>`\nand leave a role with `!leave <role name>`.")
+        .content(format!("<@{}> {}", user_id, content))
         .await?;
+    Ok(())
+}
+
+async fn send_help_message(
+    http: HttpClient,
+    channel_id: ChannelId,
+    user_id: UserId,
+) -> Result<()> {
+    send_message(&http, channel_id, user_id,
+        "Send me a PM to submit theme ideas.\n\n\
+        You can also ask for text and voice channels for your game \
+        with the command `!createchannels <game name>`.\n\n\
+        Get a new role with `!role <role name>`\n\
+        and leave a role with `!leave <role name>`."
+    ).await?;
     Ok(())
 }
 
@@ -531,9 +549,7 @@ async fn handle_give_role<'a>(
         message.into()
     };
 
-    http.create_message(original_channel)
-        .content(format!("<@{}> {}", author.id, reply))
-        .await?;
+    send_message(&http, original_channel, author.id, reply).await?;
 
     Ok(())
 }
@@ -578,9 +594,7 @@ async fn handle_remove_role<'a>(
         message.into()
     };
 
-    http.create_message(original_channel)
-        .content(format!("<@{}> {}", author.id, reply))
-        .await?;
+    send_message(&http, original_channel, author.id, reply).await?;
 
     Ok(())
 }
@@ -602,7 +616,7 @@ impl Display for ChannelCreationError {
             Self::VoiceNotCreated =>
                 "I asked Discord for a voice channel but got something else. 🤔".to_string(),
             Self::InvalidName =>
-                "Team names cannot contain the character `".to_string(),
+                "Game names cannot contain the character `".to_string(),
             Self::CategoryCreationFailed(_) => "Category creation failed.".to_string(),
             Self::TextCreationFailed(_) => "Text channel creation failed.".to_string(),
             Self::VoiceCreationFailed(_) => "Voice channel creation failed.".to_string(),
