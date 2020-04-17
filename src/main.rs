@@ -11,8 +11,7 @@ use serde_derive::{Serialize, Deserialize};
 use anyhow::Context;
 use lazy_static::lazy_static;
 use serde_json;
-use regex::Regex;
-use regex::Captures;
+use regex::{Regex, Captures};
 use rand::seq::{SliceRandom, IteratorRandom};
 
 use twilight::{
@@ -40,6 +39,7 @@ enum SubmissionResult {
 }
 
 const FILENAME: &'static str = "state.json";
+const ORGANIZER: &'static str = "Organizer";
 
 /**
   Stores state that should persist between bot restarts.
@@ -305,21 +305,35 @@ async fn handle_potential_command(
             ).await?;
         },
         Some("!generatetheme") => {
-            let theme = do_theme_generation();
-            let send_result = send_message(&http, msg.channel_id, msg.author.id,
-                &theme
-            )
-            .await
-            .context("Failed to send theme");
-            match send_result {
-                Ok(_) => {},
-                Err(e) => {
-                    send_message(&http, msg.channel_id, msg.author.id,
-                        "Failed to send theme. Has someone been naughty? 🤔"
-                    ).await?;
-                    println!("Failed to send theme message {:?}", e);
-                    println!("Message should have been: {:?}", theme);
+            if is_organizer(
+                &http,
+                msg.guild_id.expect("Tried to generate theme in non-guild"),
+                msg.author.id,
+            ).await? {
+                let theme = do_theme_generation();
+                let send_result = send_message(&http, msg.channel_id, msg.author.id,
+                    &theme
+                )
+                .await
+                .context("Failed to send theme");
+                match send_result {
+                    Ok(_) => {},
+                    Err(e) => {
+                        send_message(&http, msg.channel_id, msg.author.id,
+                            "Failed to send theme. Has someone been naughty? 🤔"
+                        ).await?;
+                        println!("Failed to send theme message {:?}", e);
+                        println!("Message should have been: {:?}", theme);
+                    }
                 }
+            }
+            else {
+                send_message(&http, msg.channel_id, msg.author.id,
+                    format!(
+                        "Since you lack the required role **{}**, you do \
+                        not have permission to generate themes.", ORGANIZER)
+                ).await?;
+                println!("Tried to generate theme without required role \"{}\"", ORGANIZER);
             }
         }
         Some(s) if s.chars().next() == Some('!') => {
@@ -367,7 +381,23 @@ async fn send_help_message(
     Ok(())
 }
 
+async fn is_organizer(
+    http: &HttpClient,
+    guild_id: GuildId,
+    user_id: UserId,
+) -> Result<bool> {
+    let guild_roles = http.roles(guild_id).await?;
+    let user_roles = http.guild_member(guild_id, user_id).await?.unwrap().roles;
 
+    for role in guild_roles {
+        if role.name.to_lowercase() == ORGANIZER.to_lowercase()
+            && user_roles.contains(&role.id)
+        {
+            return Ok(true)
+        }
+    }
+    Ok(false)
+}
 
 fn do_theme_generation() -> String {
     let mut rng = rand::thread_rng();
