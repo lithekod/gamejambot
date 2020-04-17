@@ -305,36 +305,12 @@ async fn handle_potential_command(
             ).await?;
         },
         Some("!generatetheme") => {
-            if is_organizer(
-                &http,
+            handle_generate_theme(
+                msg.channel_id,
                 msg.guild_id.expect("Tried to generate theme in non-guild"),
-                msg.author.id,
-            ).await? {
-                let theme = do_theme_generation();
-                let send_result = send_message(&http, msg.channel_id, msg.author.id,
-                    &theme
-                )
-                .await
-                .context("Failed to send theme");
-                match send_result {
-                    Ok(_) => {},
-                    Err(e) => {
-                        send_message(&http, msg.channel_id, msg.author.id,
-                            "Failed to send theme. Has someone been naughty? 🤔"
-                        ).await?;
-                        println!("Failed to send theme message {:?}", e);
-                        println!("Message should have been: {:?}", theme);
-                    }
-                }
-            }
-            else {
-                send_message(&http, msg.channel_id, msg.author.id,
-                    format!(
-                        "Since you lack the required role **{}**, you do \
-                        not have permission to generate themes.", ORGANIZER)
-                ).await?;
-                println!("Tried to generate theme without required role \"{}\"", ORGANIZER);
-            }
+                &msg.author,
+                http
+            ).await?;
         }
         Some(s) if s.chars().next() == Some('!') => {
             send_message(&http, msg.channel_id, msg.author.id,
@@ -625,6 +601,46 @@ async fn handle_remove_role<'a>(
     };
 
     send_message(&http, original_channel, author.id, reply).await?;
+
+    Ok(())
+}
+
+async fn handle_generate_theme(
+    original_channel: ChannelId,
+    guild: GuildId,
+    author: &User,
+    http: HttpClient
+) -> Result<()> {
+    if is_organizer(
+        &http,
+        guild,
+        author.id,
+    ).await? {
+        let theme = do_theme_generation();
+        let send_result = send_message(&http, original_channel, author.id,
+            &theme
+        )
+        .await
+        .context("Failed to send theme");
+        match send_result {
+            Ok(_) => {},
+            Err(e) => {
+                send_message(&http, original_channel, author.id,
+                    "Failed to send theme. Has someone been naughty? 🤔"
+                ).await?;
+                println!("Failed to send theme message {:?}", e);
+                println!("Message should have been: {:?}", theme);
+            }
+        }
+    }
+    else {
+        send_message(&http, original_channel, author.id,
+            format!(
+                "Since you lack the required role **{}**, you do \
+                not have permission to generate themes.", ORGANIZER)
+        ).await?;
+        println!("Tried to generate theme without required role \"{}\"", ORGANIZER);
+    }
 
     Ok(())
 }
