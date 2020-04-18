@@ -26,7 +26,7 @@ use twilight::{
     model::{
         gateway::GatewayIntents,
         user::{User, CurrentUser},
-        channel::{Message, Channel, ChannelType, GuildChannel},
+        channel::{Message, Channel, ChannelType, GuildChannel, Reaction, ReactionType},
         id::{ChannelId, UserId, GuildId, MessageId},
     },
 };
@@ -40,6 +40,7 @@ enum SubmissionResult {
 
 const FILENAME: &'static str = "state.json";
 const ORGANIZER: &'static str = "Organizer";
+const JAMMER: &'static str = "Jammer";
 
 /**
   Stores state that should persist between bot restarts.
@@ -115,7 +116,7 @@ impl PersistentState {
         !self.channel_creators.contains_key(&id)
     }
 
-    /// Get the user's current channel
+    /// Gets the user's current channel
     pub fn get_channel_info(&mut self, id: UserId) -> Option<&(String, ChannelId)> {
         self.channel_creators.get(&id)
     }
@@ -126,11 +127,21 @@ impl PersistentState {
         self.save()
     }
 
-    /// Set the message acting as the server's EULA
+    /// Sets the message acting as the server's EULA
     pub fn set_eula(&mut self, channel_id: ChannelId, message_id: MessageId) -> Result<()> {
         self.eula_channel_id = channel_id;
         self.eula_message_id = message_id;
         self.save()
+    }
+
+    /// Gets the channel containing the server's EULA
+    pub fn get_eula_channel(&mut self) -> ChannelId {
+        self.eula_channel_id
+    }
+
+    /// Gets the message acting as the server's EULA
+    pub fn get_eula_message(&mut self) -> MessageId {
+        self.eula_message_id
     }
 
     /// Save the state to disk. Should be called after all modifications
@@ -155,7 +166,9 @@ async fn main() -> Result<()> {
         .shard_scheme(scheme)
         // Use intents to only listen to GUILD_MESSAGES events
         .intents(Some(
-            GatewayIntents::GUILD_MESSAGES | GatewayIntents::DIRECT_MESSAGES,
+            GatewayIntents::GUILD_MESSAGES
+                | GatewayIntents::DIRECT_MESSAGES
+                | GatewayIntents::GUILD_MESSAGE_REACTIONS,
         ))
         .build();
 
@@ -167,14 +180,15 @@ async fn main() -> Result<()> {
     // so startup a new one
     let http = HttpClient::new(&token);
 
-    // Since we only care about messages, make the cache only
-    // cache message related events
+    // Since we only care about messages and reactions, make
+    // the cache only cache message and reaction related events
     let cache_config = InMemoryConfigBuilder::new()
         .event_types(
             EventType::MESSAGE_CREATE
                 | EventType::MESSAGE_DELETE
                 | EventType::MESSAGE_DELETE_BULK
-                | EventType::MESSAGE_UPDATE,
+                | EventType::MESSAGE_UPDATE
+                | EventType::REACTION_ADD,
         )
         .build();
     let cache = InMemoryCache::from(cache_config);
@@ -219,6 +233,12 @@ async fn handle_event(
                     handle_potential_command(&msg, http, current_user)
                         .await?;
                 }
+            }
+        }
+        (_, Event::ReactionAdd(reaction)) => {
+            if !is_pm(&http, reaction.channel_id).await? {
+                handle_reaction_add(&reaction, http)
+                    .await?;
             }
         }
         (id, Event::ShardConnected(_)) => {
@@ -362,6 +382,44 @@ async fn handle_potential_command(
             }
         }
         None => {}
+    }
+    Ok(())
+}
+
+async fn handle_reaction_add(
+    reaction: &Reaction,
+    http: HttpClient,
+) -> Result<()> {
+    let mut ps = PersistentState::instance().lock().unwrap();
+    if reaction.channel_id == ps.get_eula_channel() &&
+        reaction.message_id == ps.get_eula_message() {
+
+        match &reaction.emoji {
+            ReactionType::Unicode {name} => {
+                if name == "👍" {
+                    let reactor = &reaction.member.as_ref().unwrap().user;
+                    let guild = reaction.guild_id.unwrap();
+                    let guild_roles = http.roles(guild).await?;
+                    for role in guild_roles {
+                        if role.name.to_lowercase() == JAMMER.to_lowercase() {
+                            let request = http.add_guild_member_role(guild, reactor.id, role.id);
+
+                            match request.await {
+                                Ok(_) => {
+                                    println!("New role {} assigned to {}", role.name, reactor.name);
+                                }
+                                Err(e) => {
+                                    println!("Couldn't assign role {} to {}\n{}", role.name, reactor.name, e);
+                                }
+                            }
+                            return Ok(())
+                        }
+                    }
+                    println!("No role {} specified on the server", JAMMER);
+                }
+            }
+            _ => {}
+        }
     }
     Ok(())
 }
