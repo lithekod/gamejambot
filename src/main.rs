@@ -35,7 +35,7 @@ type Result<T> = std::result::Result<T, anyhow::Error>;
 
 enum SubmissionResult {
     Done,
-    AlreadySubmitted,
+    AlreadySubmitted{previous_submission: String},
 }
 
 const FILENAME: &'static str = "state.json";
@@ -114,9 +114,10 @@ impl PersistentState {
         idea: &str
     ) -> Result<SubmissionResult> {
         if self.theme_ideas.contains_key(&user) {
+            let previous_submission = self.theme_ideas.get(&user).unwrap().to_string();
             self.theme_ideas.insert(user, idea.into());
             self.save().context("Failed to write current themes")?;
-            Ok(SubmissionResult::AlreadySubmitted)
+            Ok(SubmissionResult::AlreadySubmitted{previous_submission})
         }
         else {
             self.theme_ideas.insert(user, idea.into());
@@ -282,13 +283,21 @@ async fn handle_pm(msg: &Message, http: &HttpClient) -> Result<()> {
             SubmissionResult::Done => {
                 // Check if the message is a PM
                 http.create_message(msg.channel_id)
-                    .content("Theme idea registered, thanks!")
+                    .content(format!(
+                        "Theme idea \"{}\" registered, thanks!",
+                        &msg.content
+                    ))
                     .await?;
             }
-            SubmissionResult::AlreadySubmitted => {
+            SubmissionResult::AlreadySubmitted{previous_submission} => {
                 // Check if the message is a PM
                 http.create_message(msg.channel_id)
-                    .content("You can only send one idea. We replaced your old submission.")
+                    .content(format!(
+                        "You can only submit one idea.\n\
+                        Theme idea \"{}\" registered, \
+                        replacing you previous submission \"{}\".",
+                        &msg.content, previous_submission
+                    ))
                     .await?;
             }
         }
