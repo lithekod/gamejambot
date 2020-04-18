@@ -746,18 +746,16 @@ async fn handle_set_eula<'a>(
 
                                                 match result {
                                                     Ok(_) => {
-                                                        let eula_msg_preview = format!("```{}```", eula_msg.content);
-
                                                         send_message(&http, original_channel, author.id,
                                                             format!(
-                                                                "EULA set to the following messege by <@{}> in <#{}>: {}",
-                                                                eula_msg.author.id, eula_msg.channel_id, eula_msg_preview
+                                                                "Server EULA set to the following messege by <@{}> in <#{}>:\n>>> {}",
+                                                                eula_msg.author.id, eula_msg.channel_id, eula_msg.content
                                                             )
                                                         ).await?;
                                                     }
                                                     Err(ref e) => {
                                                         send_message(&http, original_channel, author.id,
-                                                            format!("Could not set EULA. Check the logs for details.")
+                                                            format!("Could not set server EULA. Check the logs for details.")
                                                         ).await?;
                                                         println!("EULA setting failed: {:?}", e);
                                                     }
@@ -803,7 +801,7 @@ async fn handle_set_eula<'a>(
         send_message(&http, original_channel, author.id,
             format!(
                 "Since you lack the required role **{}**, you do \
-                not have permission to set the EULA.", ORGANIZER)
+                not have permission to set the server EULA.", ORGANIZER)
         ).await?;
         println!("Tried to set EULA without required role \"{}\"", ORGANIZER);
     }
