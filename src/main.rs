@@ -321,9 +321,28 @@ async fn handle_potential_command(
             ).await?;
         }
         Some("!createchannels") => {
+            let guild_id = msg.guild_id.expect("Tried to create channel in non-guild");
+
+            // To prevent use before the jam
+            if !has_role(&http, guild_id, msg.author.id, JAMMER).await?
+            && !has_role(&http, guild_id, msg.author.id, ORGANIZER).await? {
+                send_message(&http, msg.channel_id, msg.author.id,
+                    format!(
+                        "Oo, you found a secret command. 😉\n\
+                        You will be able to use this command once you have \
+                        been assigned the **{}** role.\n\
+                        You will be able to get this role once the jam has \
+                        started. The details on how to do so will be made \
+                        available at that point.",
+                        JAMMER
+                    )
+                ).await?;
+                return Ok(())
+            }
+
             let result = handle_create_team_channels(
                 &words.collect::<Vec<_>>(),
-                msg.guild_id.expect("Tried to create channel in non-guild"),
+                guild_id,
                 msg.author.id,
                 &http
             ).await;
@@ -467,19 +486,24 @@ async fn send_help_message(
 ) -> Result<()> {
     let standard_message =
         "Send me a PM to submit theme ideas.\n\n\
-        You can also ask for text and voice channels for your game \
-        with the command `!createchannels <game name>`.\n\n\
-        Get a new role with `!role <role name>`\n\
+        Get a role to signify one of your skill sets with the command `!role <role name>`\n\
         and leave a role with `!leave <role name>`.";
-    let help_message = if is_organizer(&http, guild_id, user_id).await? {
-        format!("{}\n\n\
-            Since you have the role **{}**, you also have access to the \
-            following commands:\n\
-            - `!generatetheme` to generate a theme.\n\
-            - `!seteula <mention of channel with the message> <message ID>` to \
-            set the message acting as the server's EULA.",
-            standard_message, ORGANIZER
-        )
+    let jammer_message =
+        "You can also ask for text and voice channels for your game \
+        with the command `!createchannels <game name>`.";
+    let organizer_message = format!(
+        "Since you have the **{}** role, you also have access to the \
+        following commands:\n\
+        - `!generatetheme` to generate a theme.\n\
+        - `!seteula <mention of channel with the message> <message ID>` to \
+        set the message acting as the server's EULA.", ORGANIZER
+    );
+    let help_message =
+    if has_role(&http, guild_id, user_id, ORGANIZER).await? {
+        format!("{}\n\n{}\n\n{}", standard_message, jammer_message, organizer_message)
+    }
+    else if has_role(&http, guild_id, user_id, JAMMER).await? {
+        format!("{}\n\n{}", standard_message, jammer_message)
     }
     else {
         standard_message.to_string()
@@ -488,16 +512,18 @@ async fn send_help_message(
     Ok(())
 }
 
-async fn is_organizer(
+async fn has_role(
     http: &HttpClient,
     guild_id: GuildId,
     user_id: UserId,
+    role: impl ToString,
 ) -> Result<bool> {
     let guild_roles = http.roles(guild_id).await?;
     let user_roles = http.guild_member(guild_id, user_id).await?.unwrap().roles;
+    let role_to_check = role.to_string().to_lowercase();
 
     for role in guild_roles {
-        if role.name.to_lowercase() == ORGANIZER.to_lowercase()
+        if role.name.to_lowercase() == role_to_check
             && user_roles.contains(&role.id)
         {
             return Ok(true)
@@ -748,10 +774,11 @@ async fn handle_generate_theme(
     author: &User,
     http: HttpClient
 ) -> Result<()> {
-    if is_organizer(
+    if has_role(
         &http,
         guild,
         author.id,
+        ORGANIZER,
     ).await? {
         let theme = do_theme_generation();
         let send_result = send_message(&http, original_channel, author.id,
@@ -796,10 +823,11 @@ async fn handle_set_eula<'a>(
     }
     println!("Got set EULA request \"{}\"", &msg.content);
 
-    if is_organizer(
+    if has_role(
         &http,
         guild,
         author.id,
+        ORGANIZER,
     ).await? {
 
         // Parse arguments
