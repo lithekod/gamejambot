@@ -270,7 +270,12 @@ async fn handle_potential_command(
     let mut words = msg.content.split_ascii_whitespace();
     match words.next() {
         Some("!help") => {
-            send_help_message(http, msg.channel_id, msg.author.id).await?;
+            send_help_message(
+                http,
+                msg.channel_id,
+                msg.author.id,
+                msg.guild_id.expect("Tried to call for help in non-guild"),
+            ).await?;
         }
         Some("!createchannels") => {
             let result = handle_create_team_channels(
@@ -337,13 +342,23 @@ async fn handle_potential_command(
             send_message(&http, msg.channel_id, msg.author.id,
                 format!("Unrecognised command `{}`.", s)
             ).await?;
-            send_help_message(http, msg.channel_id, msg.author.id).await?;
+            send_help_message(
+                http,
+                msg.channel_id,
+                msg.author.id,
+                msg.guild_id.expect("Tried to issue a command in non-guild"),
+            ).await?;
         }
         // Not a command and probably not for us
         Some(_) => {
             // Check if we were mentioned
             if msg.mentions.contains_key(&current_user.id) {
-                send_help_message(http, msg.channel_id, msg.author.id).await?;
+                send_help_message(
+                    http,
+                    msg.channel_id,
+                    msg.author.id,
+                    msg.guild_id.expect("Tried to mention us in non-guild"),
+                ).await?;
             }
         }
         None => {}
@@ -367,14 +382,28 @@ async fn send_help_message(
     http: HttpClient,
     channel_id: ChannelId,
     user_id: UserId,
+    guild_id: GuildId,
 ) -> Result<()> {
-    send_message(&http, channel_id, user_id,
+    let standard_message =
         "Send me a PM to submit theme ideas.\n\n\
         You can also ask for text and voice channels for your game \
         with the command `!createchannels <game name>`.\n\n\
         Get a new role with `!role <role name>`\n\
-        and leave a role with `!leave <role name>`."
-    ).await?;
+        and leave a role with `!leave <role name>`.";
+    let help_message = if is_organizer(&http, guild_id, user_id).await? {
+        format!("{}\n\n\
+            Since you have the role **{}**, you also have access to the \
+            following commands:\n\
+            - `!generatetheme` to generate a theme.\n\
+            - `!seteula <mention of channel with the message> <message ID>` to \
+            set the message acting as the server's EULA.",
+            standard_message, ORGANIZER
+        )
+    }
+    else {
+        standard_message.to_string()
+    };
+    send_message(&http, channel_id, user_id, help_message).await?;
     Ok(())
 }
 
@@ -687,7 +716,7 @@ async fn handle_set_eula<'a>(
     ).await? {
 
         // Parse arguments
-        let arg_guide_msg = "Proper usage: `seteula <channel reference> <message ID>`";
+        let arg_guide_msg = "Proper usage: `!seteula <mention of channel with the message> <message ID>`";
         if rest_command.len() < 2 {
             send_message(&http, original_channel, author.id, arg_guide_msg).await?;
         }
