@@ -644,7 +644,7 @@ async fn handle_give_role<'a>(
     author: &User,
     http: HttpClient
 ) -> Result<()> {
-    let mut message = "You need to to specify a valid role.\nAvailable roles are:```Programmer\n2D Artist\n3D Artist\nSound Designer\nMusician\nIdea Guy\nBoard Games```".to_string();
+    let mut message = "You need to to specify a valid role.\nAvailable roles are:```\nProgrammer\n2D Artist\n3D Artist\nSound Designer\nMusician\nIdea Guy\nBoard Games```".to_string();
 
     let reply : String = if rest_command.len() == 0 {
         message.into()
@@ -692,7 +692,7 @@ async fn handle_remove_role<'a>(
     author: &User,
     http: HttpClient
 ) -> Result<()> {
-    let mut message = "You need to to specify a valid role.\nAvailable roles are:```Programmer\n2D Artist\n3D Artist\nSound Designer\nMusician\nIdea Guy\nBoard Games```".to_string();
+    let mut message = "You need to to specify a valid role.\nAvailable roles are:```\nProgrammer\n2D Artist\n3D Artist\nSound Designer\nMusician\nIdea Guy\nBoard Games```".to_string();
 
     let reply : String = if rest_command.len() == 0 {
         message.into()
