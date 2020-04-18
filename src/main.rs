@@ -2,7 +2,7 @@ use std::env;
 use std::fs::File;
 use std::io::prelude::*;
 use std::sync::Mutex;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::fmt::{Debug, Display};
 
@@ -41,6 +41,20 @@ enum SubmissionResult {
 const FILENAME: &'static str = "state.json";
 const ORGANIZER: &'static str = "Organizer";
 const JAMMER: &'static str = "Jammer";
+
+lazy_static! {
+    static ref REQUESTABLE_ROLES : HashSet<String> = {
+        let mut set = HashSet::new();
+        set.insert("programmer".to_string());
+        set.insert("2d artist".to_string());
+        set.insert("3d artist".to_string());
+        set.insert("sound designer".to_string());
+        set.insert("musician".to_string());
+        set.insert("idea guy".to_string());
+        set.insert("board games".to_string());
+        set
+    };
+}
 
 /**
   Stores state that should persist between bot restarts.
@@ -406,10 +420,10 @@ async fn handle_reaction_add(
 
                             match request.await {
                                 Ok(_) => {
-                                    println!("New role {} assigned to {}", role.name, reactor.name);
+                                    println!("EULA accepted: New role {} assigned to {}", role.name, reactor.name);
                                 }
                                 Err(e) => {
-                                    println!("Couldn't assign role {} to {}\n{}", role.name, reactor.name, e);
+                                    println!("EULA accepted: Couldn't assign role {} to {}\n{}", role.name, reactor.name, e);
                                 }
                             }
                             return Ok(())
@@ -636,27 +650,30 @@ async fn handle_give_role<'a>(
         message.into()
     }
     else {
-        let guild_roles = http.roles(guild).await?;
-        let author_roles = http.guild_member(guild, author.id).await?.unwrap().roles;
+        let requested_role = rest_command.join(" ").to_lowercase();
+        if REQUESTABLE_ROLES.contains(&requested_role) {
+            let guild_roles = http.roles(guild).await?;
+            let author_roles = http.guild_member(guild, author.id).await?.unwrap().roles;
 
-        for role in guild_roles {
-            if role.name.to_lowercase() == rest_command.join(" ").to_lowercase() {
-                if !author_roles.contains(&role.id) {
-                    let request = http.add_guild_member_role(guild, author.id, role.id);
+            for role in guild_roles {
+                if role.name.to_lowercase() == requested_role {
+                    if !author_roles.contains(&role.id) {
+                        let request = http.add_guild_member_role(guild, author.id, role.id);
 
-                    match request.await {
-                        Ok(_) => {
-                            message = format!("You have been assigned the role **{}**.", role.name);
-                            println!("New role {} assigned to {}", role.name, author.name);
-                        }
-                        Err(e) => {
-                            println!("Couldn't assign role {} to {}\n{}", role.name, author.name, e);
+                        match request.await {
+                            Ok(_) => {
+                                message = format!("You have been assigned the role **{}**.", role.name);
+                                println!("New role {} assigned to {}", role.name, author.name);
+                            }
+                            Err(e) => {
+                                println!("Couldn't assign role {} to {}\n{}", role.name, author.name, e);
+                            }
                         }
                     }
-                }
-                else {
-                    message = format!("You already have the role **{}**.", role.name);
-                    println!("{} already has the role ({}) they are trying to get", author.name, role.name);
+                    else {
+                        message = format!("You already have the role **{}**.", role.name);
+                        println!("{} already has the role ({}) they are trying to get", author.name, role.name);
+                    }
                 }
             }
         }
@@ -681,27 +698,30 @@ async fn handle_remove_role<'a>(
         message.into()
     }
     else {
-        let guild_roles = http.roles(guild).await?;
-        let author_roles = http.guild_member(guild, author.id).await?.unwrap().roles;
+        let requested_role = rest_command.join(" ").to_lowercase();
+        if REQUESTABLE_ROLES.contains(&requested_role) {
+            let guild_roles = http.roles(guild).await?;
+            let author_roles = http.guild_member(guild, author.id).await?.unwrap().roles;
 
-        for role in guild_roles {
-            if role.name.to_lowercase() == rest_command.join(" ").to_lowercase() {
-                if author_roles.contains(&role.id) {
-                    let request = http.remove_guild_member_role(guild, author.id, role.id);
+            for role in guild_roles {
+                if role.name.to_lowercase() == requested_role {
+                    if author_roles.contains(&role.id) {
+                        let request = http.remove_guild_member_role(guild, author.id, role.id);
 
-                    match request.await {
-                        Ok(_) => {
-                            message = format!("You have been stripped of the role **{}**.", role.name);
-                            println!("{} left the role {}", author.name, role.name);
-                        }
-                        Err(e) => {
-                            println!("Couldn't remove role {} from {}\n{}", role.name, author.name, e);
+                        match request.await {
+                            Ok(_) => {
+                                message = format!("You have been stripped of the role **{}**.", role.name);
+                                println!("{} left the role {}", author.name, role.name);
+                            }
+                            Err(e) => {
+                                println!("Couldn't remove role {} from {}\n{}", role.name, author.name, e);
+                            }
                         }
                     }
-                }
-                else {
-                    message = format!("You don't have the role **{}**.", role.name);
-                    println!("{} tried to leave a role ({}) they didn't have", author.name, role.name);
+                    else {
+                        message = format!("You don't have the role **{}**.", role.name);
+                        println!("{} tried to leave a role ({}) they didn't have", author.name, role.name);
+                    }
                 }
             }
         }
