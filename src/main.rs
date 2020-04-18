@@ -27,7 +27,7 @@ use twilight::{
         gateway::GatewayIntents,
         user::{User, CurrentUser},
         channel::{Message, Channel, ChannelType, GuildChannel},
-        id::{ChannelId, UserId, GuildId},
+        id::{ChannelId, UserId, GuildId, MessageId},
     },
 };
 
@@ -53,6 +53,8 @@ const ORGANIZER: &'static str = "Organizer";
 struct PersistentState {
     theme_ideas: HashMap<UserId, String>,
     channel_creators: HashMap<UserId, (String, ChannelId)>,
+    eula_channel_id: ChannelId,
+    eula_message_id: MessageId,
 }
 
 impl PersistentState {
@@ -68,6 +70,8 @@ impl PersistentState {
             Ok(Self {
                 theme_ideas: HashMap::new(),
                 channel_creators: HashMap::new(),
+                eula_channel_id: ChannelId {0: 0},
+                eula_message_id: MessageId {0: 0},
             })
         }
     }
@@ -119,6 +123,13 @@ impl PersistentState {
     /// Registers that the user has created a channel
     pub fn register_channel_creation(&mut self, user_id: UserId, game_name: &String, text_id: ChannelId) -> Result<()> {
         self.channel_creators.insert(user_id, (game_name.to_string(), text_id));
+        self.save()
+    }
+
+    /// Set the message acting as the server's EULA
+    pub fn set_eula(&mut self, channel_id: ChannelId, message_id: MessageId) -> Result<()> {
+        self.eula_channel_id = channel_id;
+        self.eula_message_id = message_id;
         self.save()
     }
 
@@ -310,6 +321,16 @@ async fn handle_potential_command(
                 msg.guild_id.expect("Tried to generate theme in non-guild"),
                 &msg.author,
                 http
+            ).await?;
+        }
+        Some("!seteula") => {
+            handle_set_eula(
+                &words.collect::<Vec<_>>(),
+                msg.channel_id,
+                msg.guild_id.expect("Tried to set EULA in non-guild"),
+                &msg.author,
+                http,
+                msg,
             ).await?;
         }
         Some(s) if s.chars().next() == Some('!') => {
@@ -640,6 +661,122 @@ async fn handle_generate_theme(
                 not have permission to generate themes.", ORGANIZER)
         ).await?;
         println!("Tried to generate theme without required role \"{}\"", ORGANIZER);
+    }
+
+    Ok(())
+}
+
+async fn handle_set_eula<'a>(
+    rest_command: &[&'a str],
+    original_channel: ChannelId,
+    guild: GuildId,
+    author: &User,
+    http: HttpClient,
+    msg: &Message,
+) -> Result<()> {
+    lazy_static! {
+        static ref CHANNEL_MENTION_REGEX: Regex =
+            Regex::new(r"<#(\d+)>").unwrap();
+    }
+    println!("Got set EULA request \"{}\"", &msg.content);
+
+    if is_organizer(
+        &http,
+        guild,
+        author.id,
+    ).await? {
+
+        // Parse arguments
+        let arg_guide_msg = "Proper usage: `seteula <channel reference> <message ID>`";
+        if rest_command.len() < 2 {
+            send_message(&http, original_channel, author.id, arg_guide_msg).await?;
+        }
+        else {
+            match CHANNEL_MENTION_REGEX.captures(rest_command[0]) {
+                Some(channel_ids) => {
+                    if channel_ids.len() != 2 {
+                        send_message(&http, original_channel, author.id,
+                            format!("Invalid channel reference.\n{}", arg_guide_msg)
+                        ).await?;
+                    }
+                    else {
+                        match channel_ids[1].parse::<u64>() {
+                            Ok(channel_id_num) => {
+                                match rest_command[1].parse::<u64>() {
+                                    Ok(messege_id_num) => {
+
+                                        // Fetch EULA message
+                                        match http.message(
+                                            ChannelId {0: channel_id_num},
+                                            MessageId {0: messege_id_num}
+                                        ).await {
+                                            Ok(response) => {
+                                                let eula_msg = response.unwrap();
+                                                let mut ps = PersistentState::instance().lock().unwrap();
+                                                let result = ps.set_eula(eula_msg.channel_id, eula_msg.id);
+
+                                                match result {
+                                                    Ok(_) => {
+                                                        let eula_msg_preview = format!("```{}```", eula_msg.content);
+
+                                                        send_message(&http, original_channel, author.id,
+                                                            format!(
+                                                                "EULA set to the following messege by <@{}> in <#{}>: {}",
+                                                                eula_msg.author.id, eula_msg.channel_id, eula_msg_preview
+                                                            )
+                                                        ).await?;
+                                                    }
+                                                    Err(ref e) => {
+                                                        send_message(&http, original_channel, author.id,
+                                                            format!("Could not set EULA. Check the logs for details.")
+                                                        ).await?;
+                                                        println!("EULA setting failed: {:?}", e);
+                                                    }
+                                                }
+                                            }
+                                            Err(_) => {
+                                                send_message(&http, original_channel, author.id,
+                                                    format!(
+                                                        "No message with ID {} was found in <#{}>",
+                                                        messege_id_num, channel_id_num
+                                                    )
+                                                ).await?;
+                                                println!("No message with ID {} was found in <#{}>",
+                                                    messege_id_num, channel_id_num
+                                                );
+                                            }
+                                        }
+                                    }
+                                    Err(_) => {
+                                        send_message(&http, original_channel, author.id,
+                                            format!("Message ID must be a number.\n{}", arg_guide_msg)
+                                        ).await?;
+                                    }
+                                }
+                            }
+                            Err(_) => {
+                                send_message(&http, original_channel, author.id,
+                                    format!("Invalid channel reference.\n{}", arg_guide_msg)
+                                ).await?;
+                            }
+                        }
+                    }
+                }
+                _ => {
+                    send_message(&http, original_channel, author.id,
+                        format!("Invalid channel reference.\n{}", arg_guide_msg)
+                    ).await?;
+                }
+            }
+        }
+    }
+    else {
+        send_message(&http, original_channel, author.id,
+            format!(
+                "Since you lack the required role **{}**, you do \
+                not have permission to set the EULA.", ORGANIZER)
+        ).await?;
+        println!("Tried to set EULA without required role \"{}\"", ORGANIZER);
     }
 
     Ok(())
