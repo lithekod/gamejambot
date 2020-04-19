@@ -295,7 +295,7 @@ async fn handle_pm(msg: &Message, http: &HttpClient) -> Result<()> {
                     .content(format!(
                         "You can only submit one idea.\n\
                         Theme idea \"{}\" registered, \
-                        replacing you previous submission \"{}\".",
+                        replacing your previous submission \"{}\".",
                         &msg.content, previous_submission
                     ))
                     .await?;
