@@ -1,12 +1,15 @@
+use std::clone::Clone;
+use std::vec::Vec;
 use std::fmt::Display;
 
 use lazy_static::lazy_static;
 use regex::{Captures, Regex};
+use serde_derive::{Serialize, Deserialize};
 use twilight::{
     http::Client as HttpClient,
     http::error::Error as DiscordError,
     model::{
-        channel::{ChannelType, GuildChannel},
+        channel::{Channel, ChannelType, GuildChannel},
         id::{ChannelId, GuildId, UserId},
     },
 };
@@ -14,6 +17,14 @@ use twilight::{
 use crate::role::{JAMMER, ORGANIZER, has_role};
 use crate::state::PersistentState;
 use crate::utils::{Result, send_message};
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct Team {
+    game_name: String,
+    category_id: ChannelId,
+    text_id: ChannelId,
+    voice_id: ChannelId,
+}
 
 pub async fn handle_create_channels<'a>(
     rest_command: &[&'a str],
@@ -51,7 +62,7 @@ pub async fn handle_create_channels<'a>(
         Ok(team) => {
             send_message(&http, original_channel_id, user_id,
                 format!(
-                    "Channels created for your game {} here: <#{}>",
+                    "Channels created for your game **{}** here: <#{}>",
                     team.game_name, team.text_id
                 )
             ).await?;
@@ -100,26 +111,63 @@ pub async fn handle_remove_channels<'a>(
                 ).await?;
             }
             else {
-                let category_info = PersistentState::instance().lock().unwrap().get_channel_info(user_id).cloned().unwrap();
-                let category_name = &category_info.0;
-                let category_id = category_info.1;
+                let team = PersistentState::instance().lock().unwrap().get_channel_info(user_id).cloned().unwrap();
 
-                let request = http.delete_channel(category_id).await;
-
-                match request {
-                    Ok(_) => {
-                        PersistentState::instance().lock().unwrap().remove_channel(user_id).unwrap();
-                        println!("Removed the channels for team {}.", category_name);
+                let mut oks = Vec::new();
+                let mut errs = Vec::new();
+                match http.delete_channel(team.category_id).await {
+                    Ok(Channel::Guild(GuildChannel::Category(category))) => {
+                        oks.push(format!("category **{}**", category.name));
                     }
-                    Err(e) => {
-                        println!("Something went wrong when removing a category {}, {}", category_name, e);
+                    _ => {
+                        errs.push("category".to_string());
                     }
                 }
+                match http.delete_channel(team.text_id).await {
+                    Ok(Channel::Guild(GuildChannel::Category(text))) => {
+                        oks.push(format!("text channel **#{}**", text.name));
+                    }
+                    _ => {
+                        errs.push("text channel".to_string());
+                    }
+                }
+                match http.delete_channel(team.voice_id).await {
+                    Ok(Channel::Guild(GuildChannel::Category(voice))) => {
+                        oks.push(format!("voice channel **{}**", voice.name));
+                    }
+                    _ => {
+                        errs.push("voice channel".to_string());
+                    }
+                }
+
+                PersistentState::instance().lock().unwrap().remove_channel(user_id).unwrap();
+
+                let message =
+                if oks.len() > 0 {
+                    if errs.len() > 0 {
+                        let have_has = if errs.len() > 1 { "have" } else { "has" };
+                        format!("Removed {} for the game **{}** but its {} {} already been removed.",
+                            list_strings(oks), team.game_name, list_strings(errs), have_has
+                        )
+                    }
+                    else {
+                        format!("Removed {} for the game **{}**.",
+                            list_strings(oks), team.game_name
+                        )
+                    }
+                }
+                else {
+                    format!("Category, text channel and voice channel for the game **{}** have already been removed.",
+                        team.game_name
+                    )
+                };
+
+                send_message(&http, original_channel_id, author_id, message).await?;
             }
         }
         else {
             send_message(&http, original_channel_id, author_id,
-                format!("You forgot to provide a user id.")
+                "You forgot to provide a user id."
             ).await?;
             return Ok(())
         }
@@ -127,12 +175,30 @@ pub async fn handle_remove_channels<'a>(
     Ok(())
 }
 
+fn list_strings(
+    strings: Vec<String>
+) -> String {
+    let mut result = "".to_string();
+    for i in 0..strings.len() {
+        if i > 0 {
+            if i == strings.len() - 1 {
+                result.push_str(" and ");
+            }
+            else {
+                result.push_str(", ");
+            }
+        }
+        result.push_str(&strings[i]);
+    }
+    result
+}
+
 async fn create_team<'a>(
     rest_command: &[&'a str],
     guild: GuildId,
     user: UserId,
     http: &HttpClient
-) -> std::result::Result<CreatedTeam, ChannelCreationError<>> {
+) -> std::result::Result<Team, ChannelCreationError<>> {
     lazy_static! {
         static ref INVALID_REGEX: Regex = Regex::new("[`]+").unwrap();
         static ref MARKDOWN_ESCAPE_REGEX: Regex = Regex::new("[-_+*\"#=.⋅\\\\<>{}]+").unwrap();
@@ -181,11 +247,19 @@ async fn create_team<'a>(
                     }
                 })?;
 
-            http.create_guild_channel(guild, game_name)
+            let voice = http.create_guild_channel(guild, game_name)
                 .parent_id(category.id)
                 .kind(ChannelType::GuildVoice)
                 .await
-                .map_err(|e| ChannelCreationError::VoiceCreationFailed(e))?;
+                .map_err(|e| ChannelCreationError::VoiceCreationFailed(e))
+                .and_then(|maybe_voice| {
+                    match maybe_voice {
+                        GuildChannel::Category(voice) => { // For some reason it isn't a GuildChannel::Voice
+                            Ok(voice)
+                        }
+                        _ => Err(ChannelCreationError::VoiceNotCreated)
+                    }
+                })?;
 
             let game_name_markdown_safe = MARKDOWN_ESCAPE_REGEX.replace_all(game_name,
                 |caps: &Captures| {
@@ -194,25 +268,19 @@ async fn create_team<'a>(
             ).to_string();
             println!("Markdown-safe name: {}", game_name_markdown_safe);
 
+            let team = Team {
+                game_name: game_name_markdown_safe,
+                category_id: category.id,
+                text_id: text.id,
+                voice_id: voice.id
+            };
             PersistentState::instance().lock().unwrap()
-                .register_channel_creation(user, &game_name_markdown_safe, category.id)
+                .register_channel_creation(user, &team)
                 .unwrap();
 
-            Ok(CreatedTeam{
-                game_name: game_name_markdown_safe,
-                text_id: text.id
-            })
+            Ok(team)
         }
     }
-}
-
-/**
-  Info about the channels created for a team
-*/
-#[derive(Debug)]
-struct CreatedTeam {
-    pub game_name: String,
-    pub text_id: ChannelId
 }
 
 /**
@@ -250,9 +318,9 @@ impl Display for ChannelCreationError {
         let msg = match self {
             Self::AlreadyCreated(user) => {
                 let mut ps = PersistentState::instance().lock().unwrap();
-                let (game_name, text_id) = ps.get_channel_info(*user).unwrap();
-                format!("You have already created channels for your game {} here: <#{}>",
-                    game_name, text_id)
+                let team = ps.get_channel_info(*user).unwrap();
+                format!("You have already created channels for your game **{}** here: <#{}>",
+                    team.game_name, team.text_id)
             }
             Self::NoName => "You need to specify a game name.".to_string(),
             Self::CategoryNotCreated =>

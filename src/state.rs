@@ -10,6 +10,7 @@ use serde_derive::{Serialize, Deserialize};
 use serde_json;
 use twilight::model::id::{ChannelId, MessageId, UserId};
 
+use crate::channel::Team;
 use crate::utils::Result;
 
 const FILENAME: &'static str = "state.json";
@@ -25,7 +26,7 @@ const FILENAME: &'static str = "state.json";
 #[derive(Serialize, Deserialize)]
 pub struct PersistentState {
     pub theme_ideas: HashMap<UserId, String>,
-    pub channel_creators: HashMap<UserId, (String, ChannelId)>,
+    pub channel_creators: HashMap<UserId, Team>,
     eula_channel_id: ChannelId,
     eula_message_id: MessageId,
 }
@@ -68,13 +69,13 @@ impl PersistentState {
     }
 
     /// Gets the user's current channel
-    pub fn get_channel_info(&mut self, id: UserId) -> Option<&(String, ChannelId)> {
+    pub fn get_channel_info(&mut self, id: UserId) -> Option<&Team> {
         self.channel_creators.get(&id)
     }
 
     /// Registers that the user has created a channel
-    pub fn register_channel_creation(&mut self, user_id: UserId, game_name: &String, text_id: ChannelId) -> Result<()> {
-        self.channel_creators.insert(user_id, (game_name.to_string(), text_id));
+    pub fn register_channel_creation(&mut self, user_id: UserId, team: &Team) -> Result<()> {
+        self.channel_creators.insert(user_id, team.clone());
         self.save()
     }
 
