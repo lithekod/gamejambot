@@ -78,6 +78,12 @@ impl PersistentState {
         self.save()
     }
 
+    /// Remove a registered channel
+    pub fn remove_channel(&mut self, user_id: UserId) -> Result<()> {
+        self.channel_creators.remove(&user_id);
+        self.save()
+    }
+
     /// Sets the message acting as the server's EULA
     pub fn set_eula(&mut self, channel_id: ChannelId, message_id: MessageId) -> Result<()> {
         self.eula_channel_id = channel_id;

@@ -66,6 +66,67 @@ pub async fn handle_create_channels<'a>(
     Ok(())
 }
 
+pub async fn handle_remove_channels<'a>(
+    rest_command: &[&'a str],
+    original_channel_id: ChannelId,
+    guild_id: GuildId,
+    author_id: UserId,
+    http: HttpClient
+) -> Result<()> {
+    // Only let organizers use this command
+    if !has_role(&http, guild_id, author_id, ORGANIZER).await? {
+        send_message(&http, original_channel_id, author_id,
+            format!("WAT")
+        ).await?
+    }
+    else {
+        if rest_command.len() > 0 {
+
+            let id = match rest_command.join("").parse::<u64>() {
+                Ok(id) => id,
+                Err(_) => {
+                    send_message(&http, original_channel_id, author_id,
+                        format!("That user id is invalid.")
+                    ).await?;
+                    return Ok(())
+                },
+            };
+
+            let user_id = UserId(id);
+
+            if PersistentState::instance().lock().unwrap().is_allowed_channel(user_id) {
+                send_message(&http, original_channel_id, author_id,
+                    format!("That user does not have any team channels.")
+                ).await?;
+            }
+            else {
+                let category_info = PersistentState::instance().lock().unwrap().get_channel_info(user_id).cloned().unwrap();
+                let category_name = &category_info.0;
+                let category_id = category_info.1;
+
+                let request = http.delete_channel(category_id).await;
+
+                match request {
+                    Ok(_) => {
+                        PersistentState::instance().lock().unwrap().remove_channel(user_id).unwrap();
+                        println!("Removed the channels for team {}.", category_name);
+                    }
+                    Err(e) => {
+                        println!("Something went wrong when removing a category {}, {}", category_name, e);
+                    }
+                }
+            }
+        }
+        else {
+            send_message(&http, original_channel_id, author_id,
+                format!("You forgot to provide a user id.")
+            ).await?;
+            return Ok(())
+        }
+    }
+    Ok(())
+}
+
 async fn create_team<'a>(
     rest_command: &[&'a str],
     guild: GuildId,
@@ -134,7 +195,7 @@ async fn create_team<'a>(
             println!("Markdown-safe name: {}", game_name_markdown_safe);
 
             PersistentState::instance().lock().unwrap()
-                .register_channel_creation(user, &game_name_markdown_safe, text.id)
+                .register_channel_creation(user, &game_name_markdown_safe, category.id)
                 .unwrap();
 
             Ok(CreatedTeam{
