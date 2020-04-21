@@ -257,6 +257,7 @@ async fn send_help_message(
         "Since you have the **{}** role, you also have access to the \
         following commands:\n\
         - `!generatetheme` to generate a theme.\n\
+        - `!removechannels <mention of user>` to remove a user's created channel.\n\
         - `!seteula <mention of channel with the message> <message ID>` to \
         set the message acting as the server's EULA.", ORGANIZER
     );
