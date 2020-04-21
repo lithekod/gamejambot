@@ -93,7 +93,31 @@ pub async fn handle_remove_channels<'a>(
     else {
         if rest_command.len() > 0 {
 
-            let id = match rest_command.join("").parse::<u64>() {
+            lazy_static! {
+                static ref CHANNEL_MENTION_REGEX: Regex =
+                    Regex::new(r"<@!(\d+)>").unwrap();
+            }
+            let id_str: String = match CHANNEL_MENTION_REGEX.captures(rest_command[0]) {
+                Some(channel_ids) => {
+                    if channel_ids.len() == 2 {
+                        channel_ids[1].to_string()
+                    }
+                    else {
+                        send_message(&http, original_channel_id, author_id,
+                            "Invalid user reference."
+                        ).await?;
+                        return Ok(())
+                    }
+                }
+                _ => {
+                    send_message(&http, original_channel_id, author_id,
+                        "Invalid user reference."
+                    ).await?;
+                    return Ok(())
+                }
+            };
+
+            let id = match id_str.parse::<u64>() {
                 Ok(id) => id,
                 Err(_) => {
                     send_message(&http, original_channel_id, author_id,
