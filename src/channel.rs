@@ -87,7 +87,7 @@ pub async fn handle_remove_channels<'a>(
     // Only let organizers use this command
     if !has_role(&http, guild_id, author_id, ORGANIZER).await? {
         send_message(&http, original_channel_id, author_id,
-            format!("WAT")
+            format!("You need to be an **organizer** to use this command.")
         ).await?
     }
     else {
