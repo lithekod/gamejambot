@@ -224,7 +224,7 @@ async fn create_team<'a>(
     http: &HttpClient
 ) -> std::result::Result<Team, ChannelCreationError<>> {
     lazy_static! {
-        static ref INVALID_REGEX: Regex = Regex::new("[`]+").unwrap();
+        static ref INVALID_REGEX: Regex = Regex::new("[`|]+").unwrap();
         static ref MARKDOWN_ESCAPE_REGEX: Regex = Regex::new("[-_+*\"#=.⋅\\\\<>{}]+").unwrap();
     }
 
@@ -354,7 +354,7 @@ impl Display for ChannelCreationError {
             Self::VoiceNotCreated =>
                 "I asked Discord for a voice channel but got something else. 🤔".to_string(),
             Self::InvalidName =>
-                "Game names cannot contain the character `".to_string(),
+                "Game names cannot contain the characters ` or |".to_string(),
             Self::CategoryCreationFailed(_) => "Category creation failed.".to_string(),
             Self::TextCreationFailed(_) => "Text channel creation failed.".to_string(),
             Self::VoiceCreationFailed(_) => "Voice channel creation failed.".to_string(),
