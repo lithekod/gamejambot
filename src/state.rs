@@ -64,8 +64,8 @@ impl PersistentState {
     }
 
     /// Checks if the user is allowed to create a channel
-    pub fn is_allowed_channel(&mut self, id: UserId) -> bool {
-        !self.channel_creators.contains_key(&id)
+    pub fn has_created_channel(&mut self, id: UserId) -> bool {
+        self.channel_creators.contains_key(&id)
     }
 
     /// Gets the user's current channel

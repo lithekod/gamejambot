@@ -19,6 +19,19 @@ use crate::role::{JAMMER, ORGANIZER, has_role};
 use crate::state::PersistentState;
 use crate::utils::{Result, send_message};
 
+lazy_static! {
+    static ref INVALID_REGEX: Regex = Regex::new("[`|]+").unwrap();
+    static ref MARKDOWN_ESCAPE_REGEX: Regex = Regex::new("[-_+*\"#=.⋅\\\\<>{}]+").unwrap();
+}
+
+fn to_markdown_safe<'a>(name: &'a str) -> String {
+    MARKDOWN_ESCAPE_REGEX.replace_all(name,
+        |caps: &Captures| {
+            format!("\\{}", &caps[0])
+        }
+    ).to_string()
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Team {
     game_name: String,
@@ -112,9 +125,16 @@ pub async fn handle_rename_channels<'a>(
     }
 
     if rest_command.len() > 0 {
-        let new_name = rest_command.join(" ");
+        let new_name = &*rest_command.join(" ");
 
-        if PersistentState::instance().lock().unwrap().is_allowed_channel(user_id) {
+        if INVALID_REGEX.is_match(&new_name) {
+            send_message(&http, original_channel_id, user_id,
+                "Game names cannot contain the characters ` or |"
+            ).await?;
+            return Ok(());
+        }
+
+        if !PersistentState::instance().lock().unwrap().has_created_channel(user_id) {
             send_message(&http, original_channel_id, user_id,
                 format!(
                     "You have not created a channel yet.\n\
@@ -123,16 +143,15 @@ pub async fn handle_rename_channels<'a>(
             ).await?;
         }
         else {
-            let mut ps = PersistentState::instance().lock().unwrap();
-            let mut team = ps.get_channel_info(user_id).cloned().unwrap();
-            team.game_name = new_name;
-            ps.register_channel_creation(user_id, &team)?;
+            let mut team = PersistentState::instance().lock().unwrap().get_channel_info(user_id).cloned().unwrap();
+            team.game_name = to_markdown_safe(new_name);
+            PersistentState::instance().lock().unwrap().register_channel_creation(user_id, &team)?;
 
             let mut oks = Vec::new();
             let mut errs = Vec::new();
             match http.update_channel(team.category_id)
             .kind(ChannelType::GuildCategory)
-            .name(&team.game_name)
+            .name(new_name)
             .await {
                 Ok(Channel::Guild(GuildChannel::Category(category))) => {
                     oks.push(format!("category to **{}**", category.name));
@@ -145,7 +164,7 @@ pub async fn handle_rename_channels<'a>(
             .parent_id(team.category_id)
             .kind(ChannelType::GuildText)
             .topic(format!("Work on and playtesting of the game {}.", team.game_name))
-            .name(&team.game_name).await {
+            .name(new_name).await {
                 Ok(Channel::Guild(GuildChannel::Category(text))) => {
                     oks.push(format!("text channel to **#{}** (found here: <#{}>)", text.name, text.id));
                 }
@@ -156,7 +175,7 @@ pub async fn handle_rename_channels<'a>(
             match http.update_channel(team.voice_id)
             .parent_id(team.category_id)
             .kind(ChannelType::GuildVoice)
-            .name(&team.game_name).await {
+            .name(new_name).await {
                 Ok(Channel::Guild(GuildChannel::Category(voice))) => {
                     oks.push(format!("voice channel to **{}**", voice.name));
                 }
@@ -243,7 +262,7 @@ pub async fn handle_remove_channels<'a>(
 
             let user_id = UserId(id);
 
-            if PersistentState::instance().lock().unwrap().is_allowed_channel(user_id) {
+            if !PersistentState::instance().lock().unwrap().has_created_channel(user_id) {
                 send_message(&http, original_channel_id, author_id,
                     format!("That user does not have any team channels.")
                 ).await?;
@@ -337,12 +356,8 @@ async fn create_team<'a>(
     user: UserId,
     http: &HttpClient
 ) -> std::result::Result<Team, ChannelCreationError<>> {
-    lazy_static! {
-        static ref INVALID_REGEX: Regex = Regex::new("[`|]+").unwrap();
-        static ref MARKDOWN_ESCAPE_REGEX: Regex = Regex::new("[-_+*\"#=.⋅\\\\<>{}]+").unwrap();
-    }
 
-    if !PersistentState::instance().lock().unwrap().is_allowed_channel(user) {
+    if PersistentState::instance().lock().unwrap().has_created_channel(user) {
         Err(ChannelCreationError::AlreadyCreated(user))
     }
     else {
@@ -399,15 +414,8 @@ async fn create_team<'a>(
                     }
                 })?;
 
-            let game_name_markdown_safe = MARKDOWN_ESCAPE_REGEX.replace_all(game_name,
-                |caps: &Captures| {
-                    format!("\\{}", &caps[0])
-                }
-            ).to_string();
-            println!("Markdown-safe name: {}", game_name_markdown_safe);
-
             let team = Team {
-                game_name: game_name_markdown_safe,
+                game_name: to_markdown_safe(game_name),
                 category_id: category.id,
                 text_id: text.id,
                 voice_id: voice.id
