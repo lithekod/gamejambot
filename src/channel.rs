@@ -2,6 +2,7 @@ use std::clone::Clone;
 use std::vec::Vec;
 use std::fmt::Display;
 
+use anyhow::anyhow;
 use lazy_static::lazy_static;
 use regex::{Captures, Regex};
 use serde_derive::{Serialize, Deserialize};
@@ -26,6 +27,28 @@ pub struct Team {
     voice_id: ChannelId,
 }
 
+pub async fn assert_is_jam (
+    http: &HttpClient,
+    guild_id: GuildId,
+    user_id: UserId,
+) -> Result<()> {
+    // To prevent use before the jam
+    if !has_role(&http, guild_id, user_id, JAMMER).await?
+    && !has_role(&http, guild_id, user_id, ORGANIZER).await? {
+        Err(anyhow!(
+            "Oo, you found a secret command. 😉\n\
+            You will be able to use this command once you have \
+            been assigned the **{}** role.\n\
+            You will be able to get this role once the jam has \
+            started. The details on how to do so will be made \
+            available at that point.",
+            JAMMER
+        ))
+    } else {
+        Ok(())
+    }
+}
+
 pub async fn handle_create_channels<'a>(
     rest_command: &[&'a str],
     original_channel_id: ChannelId,
@@ -34,21 +57,14 @@ pub async fn handle_create_channels<'a>(
     http: HttpClient
 ) -> Result<()> {
 
-    // To prevent use before the jam
-    if !has_role(&http, guild_id, user_id, JAMMER).await?
-    && !has_role(&http, guild_id, user_id, ORGANIZER).await? {
-        send_message(&http, original_channel_id, user_id,
-            format!(
-                "Oo, you found a secret command. 😉\n\
-                You will be able to use this command once you have \
-                been assigned the **{}** role.\n\
-                You will be able to get this role once the jam has \
-                started. The details on how to do so will be made \
-                available at that point.",
-                JAMMER
-            )
-        ).await?;
-        return Ok(())
+    match assert_is_jam(&http, guild_id, user_id).await {
+        Err(e) => {
+            send_message(&http, original_channel_id, user_id,
+                format!("{}", e)
+            ).await?;
+            return Ok(());
+        }
+        _ => {}
     }
 
     let result = create_team(
@@ -77,6 +93,104 @@ pub async fn handle_create_channels<'a>(
     Ok(())
 }
 
+pub async fn handle_rename_channels<'a>(
+    rest_command: &[&'a str],
+    original_channel_id: ChannelId,
+    guild_id: GuildId,
+    user_id: UserId,
+    http: HttpClient
+) -> Result<()> {
+
+    match assert_is_jam(&http, guild_id, user_id).await {
+        Err(e) => {
+            send_message(&http, original_channel_id, user_id,
+                format!("{}", e)
+            ).await?;
+            return Ok(());
+        }
+        _ => {}
+    }
+
+    if rest_command.len() > 0 {
+        let new_name = rest_command.join(" ");
+
+        if PersistentState::instance().lock().unwrap().is_allowed_channel(user_id) {
+            send_message(&http, original_channel_id, user_id,
+                format!(
+                    "You have not created a channel yet.\n\
+                    Try using `!createchannels <game name>` instead."
+                )
+            ).await?;
+        }
+        else {
+            let mut ps = PersistentState::instance().lock().unwrap();
+            let mut team = ps.get_channel_info(user_id).cloned().unwrap();
+            team.game_name = new_name;
+            ps.register_channel_creation(user_id, &team)?;
+
+            let mut oks = Vec::new();
+            let mut errs = Vec::new();
+            match http.update_channel(team.category_id)
+            .kind(ChannelType::GuildCategory)
+            .name(&team.game_name)
+            .await {
+                Ok(Channel::Guild(GuildChannel::Category(category))) => {
+                    oks.push(format!("category to **{}**", category.name));
+                }
+                _ => {
+                    errs.push("category".to_string());
+                }
+            }
+            match http.update_channel(team.text_id)
+            .parent_id(team.category_id)
+            .kind(ChannelType::GuildText)
+            .topic(format!("Work on and playtesting of the game {}.", team.game_name))
+            .name(&team.game_name).await {
+                Ok(Channel::Guild(GuildChannel::Category(text))) => {
+                    oks.push(format!("text channel to **#{}** (found here: <#{}>)", text.name, text.id));
+                }
+                _ => {
+                    errs.push("text channel".to_string());
+                }
+            }
+            match http.update_channel(team.voice_id)
+            .parent_id(team.category_id)
+            .kind(ChannelType::GuildVoice)
+            .name(&team.game_name).await {
+                Ok(Channel::Guild(GuildChannel::Category(voice))) => {
+                    oks.push(format!("voice channel to **{}**", voice.name));
+                }
+                _ => {
+                    errs.push("voice channel".to_string());
+                }
+            }
+
+            let message =
+            if oks.len() > 0 {
+                if errs.len() > 0 {
+                    let have_has = if errs.len() > 1 { "have" } else { "has" };
+                    format!("Renamed {} for your game **{}** but its {} {} been removed, it seems.",
+                        list_strings(oks), team.game_name, list_strings(errs), have_has
+                    )
+                }
+                else {
+                    format!("Renamed {} for your game **{}**.",
+                        list_strings(oks), team.game_name
+                    )
+                }
+            }
+            else {
+                format!("Category, text channel and voice channel for your game **{}** have been removed, it seems.",
+                    team.game_name
+                )
+            };
+
+            send_message(&http, original_channel_id, user_id, message).await?;
+        }
+    }
+    Ok(())
+}
+
 pub async fn handle_remove_channels<'a>(
     rest_command: &[&'a str],
     original_channel_id: ChannelId,
@@ -94,13 +208,13 @@ pub async fn handle_remove_channels<'a>(
         if rest_command.len() > 0 {
 
             lazy_static! {
-                static ref CHANNEL_MENTION_REGEX: Regex =
+                static ref USER_MENTION_REGEX: Regex =
                     Regex::new(r"<@!(\d+)>").unwrap();
             }
-            let id_str: String = match CHANNEL_MENTION_REGEX.captures(rest_command[0]) {
-                Some(channel_ids) => {
-                    if channel_ids.len() == 2 {
-                        channel_ids[1].to_string()
+            let id_str: String = match USER_MENTION_REGEX.captures(rest_command[0]) {
+                Some(user_ids) => {
+                    if user_ids.len() == 2 {
+                        user_ids[1].to_string()
                     }
                     else {
                         send_message(&http, original_channel_id, author_id,
@@ -343,7 +457,8 @@ impl Display for ChannelCreationError {
             Self::AlreadyCreated(user) => {
                 let mut ps = PersistentState::instance().lock().unwrap();
                 let team = ps.get_channel_info(*user).unwrap();
-                format!("You have already created channels for your game **{}** here: <#{}>",
+                format!("You have already created channels for your game **{}** here: <#{}>\n\
+                    Try using `!renamechannels <new game name>` instead if you wish to rename them.",
                     team.game_name, team.text_id)
             }
             Self::NoName => "You need to specify a game name.".to_string(),

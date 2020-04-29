@@ -24,7 +24,7 @@ mod state;
 mod theme;
 mod utils;
 
-use channel::{handle_create_channels, handle_remove_channels};
+use channel::{handle_create_channels, handle_remove_channels, handle_rename_channels};
 use eula::{handle_accept_eula, handle_set_eula};
 use role::{JAMMER, ORGANIZER, handle_give_role, handle_remove_role, has_role};
 use theme::{handle_add_theme, handle_generate_theme};
@@ -167,6 +167,15 @@ async fn handle_potential_command(
                 http
             ).await?;
         },
+        Some("!renamechannels") => {
+            handle_rename_channels(
+                &words.collect::<Vec<_>>(),
+                msg.channel_id,
+                msg.guild_id.expect("Tried to remove channels in non-guild"),
+                msg.author.id,
+                http
+            ).await?;
+        },
         Some("!removechannels") => {
             handle_remove_channels(
                 &words.collect::<Vec<_>>(),
@@ -252,7 +261,8 @@ async fn send_help_message(
         and leave a role with `!leave <role name>`.";
     let jammer_message =
         "You can also ask for text and voice channels for your game \
-        with the command `!createchannels <game name>`.";
+        with the command `!createchannels <game name>`\n\
+        and rename them with `!renamechannels <new game name>`.";
     let organizer_message = format!(
         "Since you have the **{}** role, you also have access to the \
         following commands:\n\
