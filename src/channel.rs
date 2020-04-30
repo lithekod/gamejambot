@@ -272,14 +272,6 @@ pub async fn handle_remove_channels<'a>(
 
                 let mut oks = Vec::new();
                 let mut errs = Vec::new();
-                match http.delete_channel(team.category_id).await {
-                    Ok(Channel::Guild(GuildChannel::Category(category))) => {
-                        oks.push(format!("category **{}**", category.name));
-                    }
-                    _ => {
-                        errs.push("category".to_string());
-                    }
-                }
                 match http.delete_channel(team.text_id).await {
                     Ok(Channel::Guild(GuildChannel::Category(text))) => {
                         oks.push(format!("text channel **#{}**", text.name));
@@ -294,6 +286,16 @@ pub async fn handle_remove_channels<'a>(
                     }
                     _ => {
                         errs.push("voice channel".to_string());
+                    }
+                }
+                // Placed last to avoid text and void channels from losing their
+                // parent category and being moved to base level before deletion.
+                match http.delete_channel(team.category_id).await {
+                    Ok(Channel::Guild(GuildChannel::Category(category))) => {
+                        oks.insert(0, format!("category **{}**", category.name)); // Push front
+                    }
+                    _ => {
+                        errs.insert(0, "category".to_string()); // Push front
                     }
                 }
 
