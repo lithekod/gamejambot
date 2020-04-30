@@ -125,6 +125,47 @@ pub async fn handle_generate_theme(
     Ok(())
 }
 
+pub async fn handle_show_all_themes(
+    original_channel: ChannelId,
+    guild: GuildId,
+    author: &User,
+    http: HttpClient
+) -> Result<()> {
+    if has_role(
+        &http,
+        guild,
+        author.id,
+        ORGANIZER,
+    ).await? {
+        let all_ideas = format_all_ideas();
+        let send_result = send_message(&http, original_channel, author.id,
+            format!("The theme ideas submitted are ```{}```", all_ideas)
+        )
+        .await
+        .context("Failed to send all themes");
+
+        match send_result {
+            Ok(_) => {},
+            Err(e) => {
+                send_message(&http, original_channel, author.id,
+                    "Failed to send all themes. I don't know how this happened."
+                )
+                .await?;
+                println!("Tried to send all themes but something went wrong {:?}", e);
+            }
+        }
+    }
+    else {
+        send_message(&http, original_channel, author.id,
+            format!(
+                "Since you lack the required role **{}**, you do \
+                not have permission to see all the theme ideas.", ORGANIZER)
+        ).await?;
+        println!("Tried to see all theme ideas without required role \"{}\"", ORGANIZER);
+    }
+    Ok(())
+}
+
 fn do_theme_generation() -> String {
     let mut rng = rand::thread_rng();
     let ref theme_ideas = PersistentState::instance().lock().unwrap().theme_ideas;
@@ -143,4 +184,16 @@ fn do_theme_generation() -> String {
     else {
         format!("The theme is: {} {}", selected[0], selected[1])
     }
+}
+
+fn format_all_ideas() -> String {
+    let ref theme_ideas = PersistentState::instance().lock().unwrap().theme_ideas;
+
+    let all_ideas = theme_ideas
+        .iter()
+        .map(|(_, idea)| idea.to_string())
+        .collect::<Vec<String>>()
+        .join(", ");
+
+    all_ideas
 }
