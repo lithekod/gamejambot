@@ -29,6 +29,8 @@ pub struct PersistentState {
     pub channel_creators: HashMap<UserId, Team>,
     eula_channel_id: ChannelId,
     eula_message_id: MessageId,
+    role_assign_channel_id: ChannelId,
+    role_assign_message_id: MessageId,
 }
 
 impl PersistentState {
@@ -44,8 +46,10 @@ impl PersistentState {
             Ok(Self {
                 theme_ideas: HashMap::new(),
                 channel_creators: HashMap::new(),
-                eula_channel_id: ChannelId {0: 0},
-                eula_message_id: MessageId {0: 0},
+                eula_channel_id: ChannelId(0),
+                eula_message_id: MessageId(0),
+                role_assign_channel_id: ChannelId(0),
+                role_assign_message_id: MessageId(0),
             })
         }
     }
@@ -100,6 +104,22 @@ impl PersistentState {
     /// Gets the message acting as the server's EULA
     pub fn get_eula_message(&mut self) -> MessageId {
         self.eula_message_id
+    }
+
+    /// Sets the role assignment message
+    pub fn set_role_assign(&mut self, channel_id: ChannelId, message_id: MessageId) -> Result<()> {
+        self.role_assign_channel_id = channel_id;
+        self.role_assign_message_id = message_id;
+        self.save()
+    }
+    /// Gets the channel containing the role assignment message
+    pub fn get_role_assign_channel(&mut self) -> ChannelId {
+        self.role_assign_channel_id
+    }
+
+    /// Gets the role assignment message
+    pub fn get_role_assign_message(&mut self) -> MessageId {
+        self.role_assign_message_id
     }
 
     /// Save the state to disk. Should be called after all modifications

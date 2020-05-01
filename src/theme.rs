@@ -9,7 +9,8 @@ use twilight::{
     },
 };
 
-use crate::role::{ORGANIZER, has_role};
+use crate::role::has_role;
+use crate::roles::ORGANIZER;
 use crate::state::PersistentState;
 use crate::utils::{Result, send_message};
 

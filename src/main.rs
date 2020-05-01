@@ -10,7 +10,7 @@ use twilight::{
     gateway::shard::Event,
     http::Client as HttpClient,
     model::{
-        channel::{Channel, Message, Reaction},
+        channel::{Channel, Message},
         gateway::GatewayIntents,
         id::{ChannelId, GuildId, UserId},
         user::CurrentUser,
@@ -18,15 +18,17 @@ use twilight::{
 };
 
 mod channel;
-mod eula;
+mod reaction;
 mod role;
+mod roles;
 mod state;
 mod theme;
 mod utils;
 
 use channel::{handle_create_channels, handle_remove_channels, handle_rename_channels};
-use eula::{handle_accept_eula, handle_set_eula};
-use role::{JAMMER, ORGANIZER, handle_give_role, handle_remove_role, has_role};
+use reaction::{handle_reaction_add, handle_reaction_remove, handle_set_reaction_message, ReactionMessageType};
+use role::{handle_give_role, handle_remove_role, has_role};
+use roles::{JAMMER, ORGANIZER};
 use theme::{handle_add_theme, handle_generate_theme, handle_show_all_themes};
 use utils::{Result, send_message};
 
@@ -64,7 +66,8 @@ async fn main() -> Result<()> {
                 | EventType::MESSAGE_DELETE
                 | EventType::MESSAGE_DELETE_BULK
                 | EventType::MESSAGE_UPDATE
-                | EventType::REACTION_ADD,
+                | EventType::REACTION_ADD
+                | EventType::REACTION_REMOVE,
         )
         .build();
     let cache = InMemoryCache::from(cache_config);
@@ -113,8 +116,12 @@ async fn handle_event(
         }
         (_, Event::ReactionAdd(reaction)) => {
             if !is_pm(&http, reaction.channel_id).await? {
-                handle_reaction(&reaction, http)
-                    .await?;
+                handle_reaction_add(&reaction, http).await?;
+            }
+        }
+        (_, Event::ReactionRemove(reaction)) => {
+            if !is_pm(&http, reaction.channel_id).await? {
+                handle_reaction_remove(&reaction, http).await?;
             }
         }
         (id, Event::ShardConnected(_)) => {
@@ -132,14 +139,6 @@ async fn handle_pm(
     http: &HttpClient,
 ) -> Result<()> {
     handle_add_theme(http, msg).await?;
-    Ok(())
-}
-
-async fn handle_reaction(
-    reaction: &Reaction,
-    http: HttpClient,
-) -> Result<()> {
-    handle_accept_eula(http, reaction).await?;
     Ok(())
 }
 
@@ -220,13 +219,25 @@ async fn handle_potential_command(
             ).await?;
         }
         Some("!seteula") => {
-            handle_set_eula(
+            handle_set_reaction_message(
                 &words.collect::<Vec<_>>(),
                 msg.channel_id,
                 msg.guild_id.expect("Tried to set EULA in non-guild"),
                 &msg.author,
                 http,
                 msg,
+                ReactionMessageType::Eula,
+            ).await?;
+        }
+        Some("!setroleassign") => {
+            handle_set_reaction_message(
+                &words.collect::<Vec<_>>(),
+                msg.channel_id,
+                msg.guild_id.expect("Tried to set role assignment message in non-guild"),
+                &msg.author,
+                http,
+                msg,
+                ReactionMessageType::RoleAssign,
             ).await?;
         }
         Some(s) if s.chars().next() == Some('!') => {
@@ -278,7 +289,9 @@ async fn send_help_message(
         - `!showallthemes` to view all the theme ideas that have been submitted.\n\
         - `!removechannels <mention of user>` to remove a user's created channel.\n\
         - `!seteula <mention of channel with the message> <message ID>` to \
-        set the message acting as the server's EULA.", ORGANIZER
+        set the message acting as the server's EULA.\n\
+        - `!setroleassign <mention of channel with the message> <message ID>` to \
+        set the server's role assignment message.", ORGANIZER
     );
     let help_message =
     if has_role(&http, guild_id, user_id, ORGANIZER).await? {

@@ -1,29 +1,30 @@
 use std::collections::HashSet;
+use std::fmt::Display;
 
 use lazy_static::lazy_static;
 use twilight::{
     http::Client as HttpClient,
+    http::error::Error as DiscordError,
     model::{
         id::{ChannelId, UserId, GuildId},
         user::User,
     },
 };
 
+use crate::roles::*;
 use crate::utils::{Result, send_message};
 
-pub const ORGANIZER: &'static str = "Organizer";
-pub const JAMMER: &'static str = "Jammer";
 
 lazy_static! {
     static ref REQUESTABLE_ROLES : HashSet<String> = {
         let mut set = HashSet::new();
-        set.insert("programmer".to_string());
-        set.insert("2d artist".to_string());
-        set.insert("3d artist".to_string());
-        set.insert("sound designer".to_string());
-        set.insert("musician".to_string());
-        set.insert("idea guy".to_string());
-        set.insert("board games".to_string());
+        set.insert(PROGRAMMER.to_lowercase());
+        set.insert(ARTIST_2D.to_lowercase());
+        set.insert(ARTIST_3D.to_lowercase());
+        set.insert(SOUND_DESIGNER.to_lowercase());
+        set.insert(MUSICIAN.to_lowercase());
+        set.insert(IDEA_GUY.to_lowercase());
+        set.insert(BOARD_GAMES.to_lowercase());
         set
     };
 }
@@ -32,11 +33,11 @@ pub async fn has_role(
     http: &HttpClient,
     guild_id: GuildId,
     user_id: UserId,
-    role: impl ToString,
+    role_name: impl ToString,
 ) -> Result<bool> {
     let guild_roles = http.roles(guild_id).await?;
     let user_roles = http.guild_member(guild_id, user_id).await?.unwrap().roles;
-    let role_to_check = role.to_string().to_lowercase();
+    let role_to_check = role_name.to_string().to_lowercase();
 
     for role in guild_roles {
         if role.name.to_lowercase() == role_to_check
@@ -46,6 +47,81 @@ pub async fn has_role(
         }
     }
     Ok(false)
+}
+
+impl std::error::Error for RoleError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::InvalidName(_)
+                | Self::AlreadySet(_)
+                | Self::NotSet(_) => None,
+            Self::RequestFailed(e) => Some(e)
+        }
+    }
+}
+
+pub async fn set_role(
+    http: &HttpClient,
+    guild: GuildId,
+    user_id: UserId,
+    role_name: impl ToString,
+) -> std::result::Result<String, RoleError<>> {
+    let requested_role = role_name.to_string().to_lowercase();
+    let guild_roles = http.roles(guild).await?;
+    let author_roles = http.guild_member(guild, user_id).await?.unwrap().roles;
+
+    for role in guild_roles {
+        if role.name.to_lowercase() == requested_role {
+            return if !author_roles.contains(&role.id) {
+                let request = http.add_guild_member_role(guild, user_id, role.id);
+
+                match request.await {
+                    Err(e) => {
+                        Err(RoleError::RequestFailed(e))
+                    }
+                    _ => {
+                        Ok(role.name)
+                    }
+                }
+            }
+            else {
+                Err(RoleError::AlreadySet(role.name))
+            }
+        }
+    }
+    Err(RoleError::InvalidName(role_name.to_string()))
+}
+
+pub async fn remove_role(
+    http: &HttpClient,
+    guild: GuildId,
+    user_id: UserId,
+    role_name: impl ToString,
+) -> std::result::Result<String, RoleError<>> {
+    let requested_role = role_name.to_string().to_lowercase();
+    let guild_roles = http.roles(guild).await?;
+    let author_roles = http.guild_member(guild, user_id).await?.unwrap().roles;
+
+    for role in guild_roles {
+        if role.name.to_lowercase() == requested_role {
+            return if author_roles.contains(&role.id) {
+                let request = http.remove_guild_member_role(guild, user_id, role.id);
+
+                match request.await {
+                    Err(e) => {
+                        Err(RoleError::RequestFailed(e))
+                    }
+                    _ => {
+                        Ok(role.name)
+                    }
+                }
+            }
+            else {
+                Err(RoleError::NotSet(role.name))
+            }
+        }
+    }
+    Err(RoleError::InvalidName(role_name.to_string()))
 }
 
 pub async fn handle_give_role<'a>(
@@ -61,30 +137,16 @@ pub async fn handle_give_role<'a>(
         message.into()
     }
     else {
-        let requested_role = rest_command.join(" ").to_lowercase();
-        if REQUESTABLE_ROLES.contains(&requested_role) {
-            let guild_roles = http.roles(guild).await?;
-            let author_roles = http.guild_member(guild, author.id).await?.unwrap().roles;
-
-            for role in guild_roles {
-                if role.name.to_lowercase() == requested_role {
-                    if !author_roles.contains(&role.id) {
-                        let request = http.add_guild_member_role(guild, author.id, role.id);
-
-                        match request.await {
-                            Ok(_) => {
-                                message = format!("You have been assigned the role **{}**.", role.name);
-                                println!("New role {} assigned to {}", role.name, author.name);
-                            }
-                            Err(e) => {
-                                println!("Couldn't assign role {} to {}\n{}", role.name, author.name, e);
-                            }
-                        }
-                    }
-                    else {
-                        message = format!("You already have the role **{}**.", role.name);
-                        println!("{} already has the role ({}) they are trying to get", author.name, role.name);
-                    }
+        let requested_role = rest_command.join(" ");
+        if REQUESTABLE_ROLES.contains(&requested_role.to_lowercase()) {
+            match set_role(&http, guild, author.id, &requested_role).await {
+                Err(e) => {
+                    message = format!("Couldn't assign role to you: {}", e);
+                    println!("Couldn't assign role to {}: {}", author.name, e);
+                }
+                Ok(role) => {
+                    message = format!("You have been assigned the role **{}**.", role);
+                    println!("New role {} assigned to {}", role, author.name);
                 }
             }
         }
@@ -109,30 +171,16 @@ pub async fn handle_remove_role<'a>(
         message.into()
     }
     else {
-        let requested_role = rest_command.join(" ").to_lowercase();
-        if REQUESTABLE_ROLES.contains(&requested_role) {
-            let guild_roles = http.roles(guild).await?;
-            let author_roles = http.guild_member(guild, author.id).await?.unwrap().roles;
-
-            for role in guild_roles {
-                if role.name.to_lowercase() == requested_role {
-                    if author_roles.contains(&role.id) {
-                        let request = http.remove_guild_member_role(guild, author.id, role.id);
-
-                        match request.await {
-                            Ok(_) => {
-                                message = format!("You have been stripped of the role **{}**.", role.name);
-                                println!("{} left the role {}", author.name, role.name);
-                            }
-                            Err(e) => {
-                                println!("Couldn't remove role {} from {}\n{}", role.name, author.name, e);
-                            }
-                        }
-                    }
-                    else {
-                        message = format!("You don't have the role **{}**.", role.name);
-                        println!("{} tried to leave a role ({}) they didn't have", author.name, role.name);
-                    }
+        let requested_role = rest_command.join(" ");
+        if REQUESTABLE_ROLES.contains(&requested_role.to_lowercase()) {
+            match remove_role(&http, guild, author.id, &requested_role).await {
+                Err(e) => {
+                    message = format!("Couldn't strip you of role: {}", e);
+                    println!("Couldn't strip {} of role: {}", author.name, e);
+                }
+                Ok(role) => {
+                    message = format!("You have been stripped of the role **{}**.", role);
+                    println!("{} left the role {}", author.name, role);
                 }
             }
         }
@@ -142,4 +190,34 @@ pub async fn handle_remove_role<'a>(
     send_message(&http, original_channel, author.id, reply).await?;
 
     Ok(())
+}
+
+#[derive(Debug)]
+pub enum RoleError {
+    RequestFailed(DiscordError),
+    InvalidName(String),
+    AlreadySet(String),
+    NotSet(String),
+}
+
+impl From<DiscordError> for RoleError {
+    fn from(e: DiscordError) -> Self {
+        Self::RequestFailed(e)
+    }
+}
+
+impl Display for RoleError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let msg = match self {
+            Self::RequestFailed(e) =>
+                format!("Discord error: {}", e),
+            Self::InvalidName(invalid_name) =>
+                format!("Invalid role name \"{}\"", invalid_name),
+            Self::AlreadySet(role) =>
+                format!("Role **{}** already set", role),
+            Self::NotSet(role) =>
+                format!("Role **{}** not set", role),
+        };
+        write!(f, "{}", msg)
+    }
 }

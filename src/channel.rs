@@ -15,7 +15,8 @@ use twilight::{
     },
 };
 
-use crate::role::{JAMMER, ORGANIZER, has_role};
+use crate::role::has_role;
+use crate::roles::{JAMMER, ORGANIZER};
 use crate::state::PersistentState;
 use crate::utils::{Result, send_message};
 
