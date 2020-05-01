@@ -116,7 +116,7 @@ async fn handle_event(
         }
         (_, Event::ReactionAdd(reaction)) => {
             if !is_pm(&http, reaction.channel_id).await? {
-                handle_reaction_add(&reaction, http).await?;
+                handle_reaction_add(&reaction, http, &current_user).await?;
             }
         }
         (_, Event::ReactionRemove(reaction)) => {
