@@ -163,6 +163,7 @@ async fn handle_potential_command(
                 msg.channel_id,
                 msg.guild_id.expect("Tried to create channels in non-guild"),
                 msg.author.id,
+                current_user.id,
                 http
             ).await?;
         },
@@ -172,6 +173,7 @@ async fn handle_potential_command(
                 msg.channel_id,
                 msg.guild_id.expect("Tried to remove channels in non-guild"),
                 msg.author.id,
+                current_user.id,
                 http
             ).await?;
         },

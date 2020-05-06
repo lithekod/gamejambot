@@ -10,7 +10,11 @@ use twilight::{
     http::Client as HttpClient,
     http::error::Error as DiscordError,
     model::{
-        channel::{Channel, ChannelType, GuildChannel},
+        channel::{
+            Channel, ChannelType, GuildChannel,
+            permission_overwrite::{PermissionOverwrite, PermissionOverwriteType},
+        },
+        guild::Permissions,
         id::{ChannelId, GuildId, UserId},
     },
 };
@@ -23,6 +27,14 @@ use crate::utils::{Result, send_message};
 lazy_static! {
     static ref INVALID_REGEX: Regex = Regex::new("[`|]+").unwrap();
     static ref MARKDOWN_ESCAPE_REGEX: Regex = Regex::new("[-_+*\"#=.⋅\\\\<>{}]+").unwrap();
+}
+
+fn permissions_deny_send(user_id: UserId) -> Vec<PermissionOverwrite> {
+    vec!(PermissionOverwrite {
+        allow: Permissions::empty(),
+        deny: Permissions::SEND_MESSAGES,
+        kind: PermissionOverwriteType::Member(user_id),
+    })
 }
 
 fn to_markdown_safe<'a>(name: &'a str) -> String {
@@ -68,6 +80,7 @@ pub async fn handle_create_channels<'a>(
     original_channel_id: ChannelId,
     guild_id: GuildId,
     user_id: UserId,
+    current_user_id: UserId,
     http: HttpClient
 ) -> Result<()> {
 
@@ -85,6 +98,7 @@ pub async fn handle_create_channels<'a>(
         rest_command,
         guild_id,
         user_id,
+        current_user_id,
         &http
     ).await;
 
@@ -112,6 +126,7 @@ pub async fn handle_rename_channels<'a>(
     original_channel_id: ChannelId,
     guild_id: GuildId,
     user_id: UserId,
+    current_user_id: UserId,
     http: HttpClient
 ) -> Result<()> {
 
@@ -165,6 +180,7 @@ pub async fn handle_rename_channels<'a>(
             .parent_id(team.category_id)
             .kind(ChannelType::GuildText)
             .topic(format!("Work on and playtesting of the game {}.", team.game_name))
+            .permission_overwrites(permissions_deny_send(current_user_id))
             .name(new_name).await {
                 Ok(Channel::Guild(GuildChannel::Category(text))) => {
                     oks.push(format!("text channel to **#{}** (found here: <#{}>)", text.name, text.id));
@@ -357,6 +373,7 @@ async fn create_team<'a>(
     rest_command: &[&'a str],
     guild: GuildId,
     user: UserId,
+    current_user_id: UserId,
     http: &HttpClient
 ) -> std::result::Result<Team, ChannelCreationError<>> {
 
@@ -392,6 +409,7 @@ async fn create_team<'a>(
                 .parent_id(category.id)
                 .kind(ChannelType::GuildText)
                 .topic(format!("Work on and playtesting of the game {}.", game_name))
+                .permission_overwrites(permissions_deny_send(current_user_id))
                 .await
                 .map_err(|e| ChannelCreationError::TextCreationFailed(e))
                 .and_then(|maybe_text| {
