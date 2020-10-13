@@ -307,6 +307,30 @@ pub async fn handle_remove_channels<'a>(
     Ok(())
 }
 
+pub async fn handle_clear_channel_associations<'a>(
+    original_channel_id: ChannelId,
+    guild_id: GuildId,
+    author_id: UserId,
+    http: HttpClient
+) -> Result<()> {
+    // Only let organizers use this command
+    if !has_role(&http, guild_id, author_id, ORGANIZER).await? {
+        send_message(&http, original_channel_id, author_id,
+            format!("You need to be an **organizer** to use this command.")
+        ).await?
+    }
+    else {
+        let channel_count = PersistentState::instance().lock().unwrap().get_channel_count();
+        PersistentState::instance().lock().unwrap().remove_all_channels().unwrap();
+
+        send_message(&http, original_channel_id, author_id,
+            format!("Cleared all {} user–channel associations.\n\
+            All users can now create new channels.", channel_count)
+        ).await?;
+    }
+    Ok(())
+}
+
 fn list_strings(
     strings: Vec<String>
 ) -> String {

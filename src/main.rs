@@ -25,7 +25,7 @@ mod state;
 mod theme;
 mod utils;
 
-use channel::{handle_create_channels, handle_remove_channels, handle_rename_channels};
+use channel::{handle_create_channels, handle_remove_channels, handle_clear_channel_associations, handle_rename_channels};
 use reaction::{handle_reaction_add, handle_reaction_remove, handle_set_reaction_message, ReactionMessageType};
 use role::{handle_give_role, handle_remove_role, has_role};
 use roles::ORGANIZER;
@@ -185,6 +185,14 @@ async fn handle_potential_command(
                 http
             ).await?;
         },
+        Some("!clearassociations") => {
+            handle_clear_channel_associations(
+                msg.channel_id,
+                msg.guild_id.expect("Tried to clear channel associations in non-guild"),
+                msg.author.id,
+                http,
+            ).await?;
+        }
         Some("!role") => {
             handle_give_role(
                 &words.collect::<Vec<_>>(),
@@ -277,6 +285,7 @@ async fn send_help_message(
         - `!generatetheme` to generate a theme.\n\
         - `!showallthemes` to view all the theme ideas that have been submitted.\n\
         - `!removechannels <mention of user>` to remove a user's created channel.\n\
+        - `!clearassociations` to clear all user–channel associations.\n\
         - `!setroleassign <mention of channel with the message> <message ID>` to \
         set the server's role assignment message.", ORGANIZER
     );

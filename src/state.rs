@@ -85,6 +85,17 @@ impl PersistentState {
         self.save()
     }
 
+    /// Gets the number of created channels
+    pub fn get_channel_count(&self) -> usize {
+        self.channel_creators.len()
+    }
+
+    /// Remove all registered channels
+    pub fn remove_all_channels(&mut self) -> Result<()> {
+        self.channel_creators.clear();
+        self.save()
+    }
+
     /// Sets the role assignment message
     pub fn set_role_assign(&mut self, channel_id: ChannelId, message_id: MessageId) -> Result<()> {
         self.role_assign_channel_id = channel_id;
