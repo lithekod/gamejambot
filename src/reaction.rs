@@ -21,7 +21,6 @@ pub async fn handle_reaction_add(
     current_user: &CurrentUser,
 ) -> Result<()> {
     handle_add_role(&http, reaction, &current_user).await?;
-    handle_accept_eula(&http, reaction, &current_user).await?;
     Ok(())
 }
 
@@ -108,51 +107,7 @@ async fn handle_remove_role(
     Ok(())
 }
 
-async fn handle_accept_eula(
-    http: &HttpClient,
-    reaction: &Reaction,
-    current_user: &CurrentUser,
-) -> Result<()> {
-    let mut ps = PersistentState::instance().lock().unwrap();
-    if reaction.channel_id == ps.get_eula_channel() &&
-        reaction.message_id == ps.get_eula_message() {
-
-        match &reaction.emoji {
-            ReactionType::Unicode {name} => {
-                if name == "👍" {
-                    let reactor = &reaction.member.as_ref().unwrap().user;
-                    let guild = reaction.guild_id.unwrap();
-                    let guild_roles = http.roles(guild).await?;
-
-                    if reactor.id != current_user.id {
-                        for role in guild_roles {
-                            if role.name.to_lowercase() == JAMMER.to_lowercase() {
-                                let request = http.add_guild_member_role(guild, reactor.id, role.id);
-
-                                match request.await {
-                                    Ok(_) => {
-                                        println!("EULA accepted: New role {} assigned to {}", role.name, reactor.name);
-                                    }
-                                    Err(e) => {
-                                        println!("EULA accepted: Couldn't assign role {} to {}\n{}", role.name, reactor.name, e);
-                                    }
-                                }
-                                return Ok(())
-                            }
-                        }
-                    }
-                    else {}
-                    println!("No role {} specified on the server", JAMMER);
-                }
-            }
-            _ => {}
-        }
-    }
-    Ok(())
-}
-
 pub enum ReactionMessageType {
-    Eula,
     RoleAssign,
 }
 
@@ -170,7 +125,6 @@ pub async fn handle_set_reaction_message<'a>(
             Regex::new(r"<#(\d+)>").unwrap();
     }
     let msg_type_name = match msg_type {
-        ReactionMessageType::Eula => "EULA",
         ReactionMessageType::RoleAssign => "role assignment message",
     };
 
@@ -185,7 +139,6 @@ pub async fn handle_set_reaction_message<'a>(
 
         // Parse arguments
         let command = match msg_type {
-            ReactionMessageType::Eula => "seteula",
             ReactionMessageType::RoleAssign => "setroleassign",
         };
         let arg_guide_msg = format!(
@@ -217,10 +170,6 @@ pub async fn handle_set_reaction_message<'a>(
                                                 let reaction_msg = response.unwrap();
                                                 let mut ps = PersistentState::instance().lock().unwrap();
                                                 let result = match msg_type {
-                                                    ReactionMessageType::Eula => {
-                                                        http.create_reaction(reaction_msg.channel_id, reaction_msg.id, "👍").await?;
-                                                        ps.set_eula(reaction_msg.channel_id, reaction_msg.id)
-                                                    },
                                                     ReactionMessageType::RoleAssign => {
                                                         http.create_reaction(reaction_msg.channel_id, reaction_msg.id, "💻").await?;
                                                         http.create_reaction(reaction_msg.channel_id, reaction_msg.id, "🎨").await?;

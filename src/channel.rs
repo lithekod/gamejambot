@@ -2,7 +2,6 @@ use std::clone::Clone;
 use std::vec::Vec;
 use std::fmt::Display;
 
-use anyhow::anyhow;
 use lazy_static::lazy_static;
 use regex::{Captures, Regex};
 use serde_derive::{Serialize, Deserialize};
@@ -20,7 +19,7 @@ use twilight::{
 };
 
 use crate::role::has_role;
-use crate::roles::{JAMMER, ORGANIZER};
+use crate::roles::ORGANIZER;
 use crate::state::PersistentState;
 use crate::utils::{Result, send_message};
 
@@ -53,28 +52,6 @@ pub struct Team {
     voice_id: ChannelId,
 }
 
-pub async fn assert_is_jam (
-    http: &HttpClient,
-    guild_id: GuildId,
-    user_id: UserId,
-) -> Result<()> {
-    // To prevent use before the jam
-    if !has_role(&http, guild_id, user_id, JAMMER).await?
-    && !has_role(&http, guild_id, user_id, ORGANIZER).await? {
-        Err(anyhow!(
-            "Oo, you found a secret command. 😉\n\
-            You will be able to use this command once you have \
-            been assigned the **{}** role.\n\
-            You will be able to get this role once the jam has \
-            started. The details on how to do so will be made \
-            available at that point.",
-            JAMMER
-        ))
-    } else {
-        Ok(())
-    }
-}
-
 pub async fn handle_create_channels<'a>(
     rest_command: &[&'a str],
     original_channel_id: ChannelId,
@@ -83,16 +60,6 @@ pub async fn handle_create_channels<'a>(
     current_user_id: UserId,
     http: HttpClient
 ) -> Result<()> {
-
-    match assert_is_jam(&http, guild_id, user_id).await {
-        Err(e) => {
-            send_message(&http, original_channel_id, user_id,
-                format!("{}", e)
-            ).await?;
-            return Ok(());
-        }
-        _ => {}
-    }
 
     let result = create_team(
         rest_command,
@@ -124,21 +91,10 @@ pub async fn handle_create_channels<'a>(
 pub async fn handle_rename_channels<'a>(
     rest_command: &[&'a str],
     original_channel_id: ChannelId,
-    guild_id: GuildId,
     user_id: UserId,
     current_user_id: UserId,
     http: HttpClient
 ) -> Result<()> {
-
-    match assert_is_jam(&http, guild_id, user_id).await {
-        Err(e) => {
-            send_message(&http, original_channel_id, user_id,
-                format!("{}", e)
-            ).await?;
-            return Ok(());
-        }
-        _ => {}
-    }
 
     if rest_command.len() > 0 {
         let new_name = &*rest_command.join(" ");

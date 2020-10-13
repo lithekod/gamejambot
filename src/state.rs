@@ -27,8 +27,6 @@ const FILENAME: &'static str = "state.json";
 pub struct PersistentState {
     pub theme_ideas: HashMap<UserId, String>,
     pub channel_creators: HashMap<UserId, Team>,
-    eula_channel_id: ChannelId,
-    eula_message_id: MessageId,
     role_assign_channel_id: ChannelId,
     role_assign_message_id: MessageId,
 }
@@ -46,8 +44,6 @@ impl PersistentState {
             Ok(Self {
                 theme_ideas: HashMap::new(),
                 channel_creators: HashMap::new(),
-                eula_channel_id: ChannelId(0),
-                eula_message_id: MessageId(0),
                 role_assign_channel_id: ChannelId(0),
                 role_assign_message_id: MessageId(0),
             })
@@ -87,23 +83,6 @@ impl PersistentState {
     pub fn remove_channel(&mut self, user_id: UserId) -> Result<()> {
         self.channel_creators.remove(&user_id);
         self.save()
-    }
-
-    /// Sets the message acting as the server's EULA
-    pub fn set_eula(&mut self, channel_id: ChannelId, message_id: MessageId) -> Result<()> {
-        self.eula_channel_id = channel_id;
-        self.eula_message_id = message_id;
-        self.save()
-    }
-
-    /// Gets the channel containing the server's EULA
-    pub fn get_eula_channel(&mut self) -> ChannelId {
-        self.eula_channel_id
-    }
-
-    /// Gets the message acting as the server's EULA
-    pub fn get_eula_message(&mut self) -> MessageId {
-        self.eula_message_id
     }
 
     /// Sets the role assignment message

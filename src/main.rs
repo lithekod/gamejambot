@@ -28,7 +28,7 @@ mod utils;
 use channel::{handle_create_channels, handle_remove_channels, handle_rename_channels};
 use reaction::{handle_reaction_add, handle_reaction_remove, handle_set_reaction_message, ReactionMessageType};
 use role::{handle_give_role, handle_remove_role, has_role};
-use roles::{JAMMER, ORGANIZER};
+use roles::ORGANIZER;
 use theme::{handle_add_theme, handle_generate_theme, handle_show_all_themes};
 use utils::{Result, send_message};
 
@@ -171,7 +171,6 @@ async fn handle_potential_command(
             handle_rename_channels(
                 &words.collect::<Vec<_>>(),
                 msg.channel_id,
-                msg.guild_id.expect("Tried to remove channels in non-guild"),
                 msg.author.id,
                 current_user.id,
                 http
@@ -218,17 +217,6 @@ async fn handle_potential_command(
                 msg.guild_id.expect("Tried to show all themes in non-guild"),
                 &msg.author,
                 http
-            ).await?;
-        }
-        Some("!seteula") => {
-            handle_set_reaction_message(
-                &words.collect::<Vec<_>>(),
-                msg.channel_id,
-                msg.guild_id.expect("Tried to set EULA in non-guild"),
-                &msg.author,
-                http,
-                msg,
-                ReactionMessageType::Eula,
             ).await?;
         }
         Some("!setroleassign") => {
@@ -279,9 +267,8 @@ async fn send_help_message(
     let standard_message =
         "Send me a PM to submit theme ideas.\n\n\
         Get a role to signify one of your skill sets with the command `!role <role name>`\n\
-        and leave a role with `!leave <role name>`.";
-    let jammer_message =
-        "You can also ask for text and voice channels for your game \
+        and leave a role with `!leave <role name>`.\n\n\
+        You can also ask for text and voice channels for your game \
         with the command `!createchannels <game name>`\n\
         and rename them with `!renamechannels <new game name>`.";
     let organizer_message = format!(
@@ -290,17 +277,12 @@ async fn send_help_message(
         - `!generatetheme` to generate a theme.\n\
         - `!showallthemes` to view all the theme ideas that have been submitted.\n\
         - `!removechannels <mention of user>` to remove a user's created channel.\n\
-        - `!seteula <mention of channel with the message> <message ID>` to \
-        set the message acting as the server's EULA.\n\
         - `!setroleassign <mention of channel with the message> <message ID>` to \
         set the server's role assignment message.", ORGANIZER
     );
     let help_message =
     if has_role(&http, guild_id, user_id, ORGANIZER).await? {
-        format!("{}\n\n{}\n\n{}", standard_message, jammer_message, organizer_message)
-    }
-    else if has_role(&http, guild_id, user_id, JAMMER).await? {
-        format!("{}\n\n{}", standard_message, jammer_message)
+        format!("{}\n\n{}", standard_message, organizer_message)
     }
     else {
         standard_message.to_string()
