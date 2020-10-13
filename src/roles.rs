@@ -1,5 +1,4 @@
 pub const ORGANIZER:        &'static str = "Organizer";
-pub const JAMMER:           &'static str = "Jammer";
 pub const PROGRAMMER:       &'static str = "Programmer";
 pub const ARTIST_2D:        &'static str = "2D Artist";
 pub const ARTIST_3D:        &'static str = "3D Artist";
