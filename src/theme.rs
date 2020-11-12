@@ -167,6 +167,47 @@ pub async fn handle_show_all_themes(
     Ok(())
 }
 
+pub async fn handle_show_theme_count(
+    original_channel: ChannelId,
+    guild: GuildId,
+    author: &User,
+    http: HttpClient
+) -> Result<()> {
+    if has_role(
+        &http,
+        guild,
+        author.id,
+        ORGANIZER,
+    ).await? {
+        let theme_count = PersistentState::instance().lock().unwrap().theme_ideas.len();
+        let send_result = send_message(&http, original_channel, author.id,
+            format!("There are **{}** submitted theme ideas.", theme_count)
+        )
+        .await
+        .context("Failed to send theme idea count");
+
+        match send_result {
+            Ok(_) => {},
+            Err(e) => {
+                send_message(&http, original_channel, author.id,
+                    "Failed to send theme idea count. I don't know how this happened."
+                )
+                .await?;
+                println!("Tried to send theme idea count but something went wrong {:?}", e);
+            }
+        }
+    }
+    else {
+        send_message(&http, original_channel, author.id,
+            format!(
+                "Since you lack the required role **{}**, you do \
+                not have permission to see the theme idea count.", ORGANIZER)
+        ).await?;
+        println!("Tried to see theme idea count without required role \"{}\"", ORGANIZER);
+    }
+    Ok(())
+}
+
 fn do_theme_generation() -> String {
     let mut rng = rand::thread_rng();
     let ref theme_ideas = PersistentState::instance().lock().unwrap().theme_ideas;

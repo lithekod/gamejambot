@@ -29,7 +29,7 @@ use channel::{handle_create_channels, handle_remove_channels, handle_clear_chann
 use reaction::{handle_reaction_add, handle_reaction_remove, handle_set_reaction_message, ReactionMessageType};
 use role::{handle_give_role, handle_remove_role, has_role};
 use roles::ORGANIZER;
-use theme::{handle_add_theme, handle_generate_theme, handle_show_all_themes};
+use theme::{handle_add_theme, handle_generate_theme, handle_show_all_themes, handle_show_theme_count};
 use utils::{Result, send_message};
 
 #[tokio::main]
@@ -227,6 +227,14 @@ async fn handle_potential_command(
                 http
             ).await?;
         }
+        Some("!showthemecount") => {
+            handle_show_theme_count(
+                msg.channel_id,
+                msg.guild_id.expect("Tried to show theme idea count in non-guild"),
+                &msg.author,
+                http
+            ).await?;
+        }
         Some("!setroleassign") => {
             handle_set_reaction_message(
                 &words.collect::<Vec<_>>(),
@@ -284,6 +292,7 @@ async fn send_help_message(
         following commands:\n\
         - `!generatetheme` to generate a theme.\n\
         - `!showallthemes` to view all the theme ideas that have been submitted.\n\
+        - `!showthemecount` to see the number of theme ideas that have been submitted.\n\
         - `!removechannels <mention of user>` to remove a user's created channel.\n\
         - `!clearassociations` to clear all user–channel associations.\n\
         - `!setroleassign <mention of channel with the message> <message ID>` to \
