@@ -40,6 +40,7 @@ fn emoji_to_role(emoji: &String) -> Option<&str> {
     else if emoji == "🎵" { Some(MUSICIAN) }
     else if emoji == "💡" { Some(IDEA_GUY) }
     else if emoji == "🎲" { Some(BOARD_GAMES) }
+    else if emoji == "🎮" { Some(PLAY_TESTER) }
     else { None }
 }
 
@@ -178,6 +179,7 @@ pub async fn handle_set_reaction_message<'a>(
                                                         http.create_reaction(reaction_msg.channel_id, reaction_msg.id, "🎵").await?;
                                                         http.create_reaction(reaction_msg.channel_id, reaction_msg.id, "💡").await?;
                                                         http.create_reaction(reaction_msg.channel_id, reaction_msg.id, "🎲").await?;
+                                                        http.create_reaction(reaction_msg.channel_id, reaction_msg.id, "🎮").await?;
                                                         ps.set_role_assign(reaction_msg.channel_id, reaction_msg.id)
                                                     }
                                                 };

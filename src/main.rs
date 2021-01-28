@@ -281,8 +281,8 @@ async fn send_help_message(
     guild_id: GuildId,
 ) -> Result<()> {
     let standard_message =
-        "Send me a PM to submit theme ideas.\n\n\
-        Get a role to signify one of your skill sets with the command `!role <role name>`\n\
+        //"Send me a PM to submit theme ideas.\n\n\
+        "Get a role to signify one of your skill sets with the command `!role <role name>`\n\
         and leave a role with `!leave <role name>`.\n\n\
         You can also ask for text and voice channels for your game \
         with the command `!createchannels <game name>`\n\

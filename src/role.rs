@@ -25,6 +25,7 @@ lazy_static! {
         set.insert(MUSICIAN.to_lowercase());
         set.insert(IDEA_GUY.to_lowercase());
         set.insert(BOARD_GAMES.to_lowercase());
+        set.insert(PLAY_TESTER.to_lowercase());
         set
     };
 }

@@ -6,3 +6,4 @@ pub const SOUND_DESIGNER:   &'static str = "Sound Designer";
 pub const MUSICIAN:         &'static str = "Musician";
 pub const IDEA_GUY:         &'static str = "Idea Guy";
 pub const BOARD_GAMES:      &'static str = "Board Games";
+pub const PLAY_TESTER:      &'static str = "Play Tester";
